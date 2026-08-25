@@ -1,181 +1,88 @@
-# Tutorial Lengkap: Polymarket BTC 5-Minute Trading Bot di Docker
+# Tutorial: Polymarket BTC 5-Minute Signal Bot
 
-Tutorial ini membimbing Anda untuk meng‑setup, menjalankan, dan mengoptimalkan bot trading Polymarket BTC 5‑minute Up/Down yang berjalan di Docker. Ikuti langkah demi langkah agar bot berjalan dengan akurat.
-
----
-
-## 1. Persiapan Lingkungan
-
-### 1.1 Pastikan Docker Terpasang
-
-Docker Desktop (Windows/macOS) atau Docker Engine (Linux) harus sudah terpasang dan berjalan.
-
-```bash
-docker --version
-docker compose version
-```
-
-Anda harus melihat versi Docker dan Docker Compose yang terpasang.
+Panduan lengkap setup, konfigurasi AI, dan menjalankan bot sinyal BTC Up/Down (mode no-wallet). Bot ini **hanya memberi sinyal** — tidak ada order/transaksi otomatis.
 
 ---
 
-## 2. Kloning Repositori
+## 1. Apa yang Bot Ini Lakukan
 
-Unduh / kloning repositori bot ini ke komputer Anda:
+1. Setiap window 5 menit Polymarket membuka market `btc-5m-{window_ts}`.
+2. Bot membaca kline 1-menit BTCUSDT dari Binance.
+3. T-15s s/d T-1s sebelum window tutup, bot menghitung sinyal:
+   - Skor teknikal: **window delta** (dominant) + **EMA 9**.
+   - Jika skor lemah (`|score| <= 4`), bot bertanya ke **AI** (9router/coding-fast) sebagai tiebreaker.
+4. Mencetak arah + confidence + sparkline chart ke terminal.
+
+---
+
+## 2. Prasyarat
+
+- Python 3.9+ (wajib untuk modul `zoneinfo`).
+- Akses internet ke `data-api.binance.vision` (atau api Binance lainnya).
+- (Opsional) API key AI — mis. dari **9router** dengan model `coding-fast` dan base URL `https://ai-gateway.gylang.my.id/v1`.
+- (Opsional) Docker + Docker Compose untuk menjalankan via container.
+
+---
+
+## 3. Setup
+
+### 3.1 Clone / Salin Project
 
 ```bash
-git clone https://github.com/username/PolymarketBot.git
+git clone <repo-anda>/PolymarketBot.git
 cd PolymarketBot
 ```
 
----
-
-## 3. Konfigurasi Akun Polymarket
-
-### 3.1 Akun & Private Key
-
-- Punya akun Polymarket di https://polymarket.com.
-- Akun harus memiliki USDC di jaringan **Polygon**.
-- Export **private key** dompet Polymarket Anda. Caranya:
-  1. Login ke Polymarket.
-  2. Buka **Settings > Wallet > Export Private Key**.
-  3. Salin kunci pribadi (format `0x...`).
-
-### 3.2 Derive API Credentials
-
-Jalankan skrip `setup_creds.py` untuk menghasilkan API credentials dari private key:
-
-> **Catatan:** Jalankan ini **sekali saja**. Credentials yang dihasilkan cukup permanen.
-
-Cara 1 — secara lokal (opsional):
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python3 setup_creds.py
-```
-
-Skrip akan mencetak output seperti:
-
-```
---- NEW API CREDENTIALS ---
-POLY_API_KEY=...
-POLY_API_SECRET=...
-POLY_API_PASSPHRASE=...
-POLY_FUNDER_ADDRESS=0x...
-```
-
-Salin semua nilai ini. Jika Anda tidak dapat menjalankan secara lokal, jalankan lewat Docker (lihat langkah 4.2).
-
----
-
-## 4. Konfigurasi .env
-
-Buat file `.env` dari contoh:
+### 3.2 Buat .env
 
 ```bash
 cp .env.example .env
 ```
 
-Buka `.env` dan isi semua nilai:
+Isi `.env`:
 
 ```env
-# Polymarket credentials
-POLY_PRIVATE_KEY=0x...your_private_key...
-POLY_API_KEY=...derived...
-POLY_API_SECRET=...derived...
-POLY_API_PASSPHRASE=...derived...
-POLY_FUNDER_ADDRESS=0x...your_proxy_wallet...
-POLY_SIGNATURE_TYPE=1
-
-# Auto-claimer (optional)
-
-### 5.2 Jalankan Bot
-
-```bash
-docker compose up -d bot
+# AI API (9router / coding-fast)
+AI_API_KEY=sk-...ganti-dengan-api-key-anda...
+AI_BASE_URL=https://ai-gateway.gylang.my.id/v1
+AI_MODEL=coding-fast
 ```
 
-Bot akan otomatis berjalan di latar belakang. Untuk melihat log:
+> `.env` sudah masuk `.gitignore`. Jangan pernah commit file ini — API key adalah secret.
+>
+> Tanpa `AI_API_KEY`, bot tetap jalan menggunakan sinyal aturan saja (AI dinonaktifkan).
+
+### 3.3 Install Dependensi
 
 ```bash
-docker compose logs -f bot
-```
-
-Tekan `Ctrl + C` untuk berhenti melihat log (bot tetap berjalan).
-
----
-
-## 6. Mode Operasi Bot
-
-Anda bisa mengganti `BOT_MODE` di `.env` sebelum build / restart. Empat mode berikut didukung:
-
-| Mode          | Strategi                                    | Confidence Minimum | Risiko              |
-| ------------- | ------------------------------------------- | ------------------ | ------------------- |
-| `flat`        | Taruh 25 % bankroll tiap trade.             | 0 %                | Stabil, rendah ROI. |
-| `safe`        | Sama seperti flat, tapi butuh confidence 30 %. | 30 %             | Konservatif.       |
-| `aggressive`  | Taruh profit di atas investasi awal.        | 20 %               | Medium.             |
-| `degen`       | All‑in setiap trade.                        | 0 %                | Sangat tinggi.      |
-
-Setelah mengganti mode, restart service:
-
-```bash
-docker compose stop bot
-docker compose up -d bot
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ---
 
-## 7. Dry Run (Uji Coba Tanpa Risiko)
+## 4. Menjalankan
 
-Untuk menguji bot dengan **data riil** tetapi **tanpa melakukan trade sungguhan**, ubah `docker-compose.yml`:
-
-```yaml
-command: python3 bot.py --dry-run
-```
-
-Atau jalankan langsung di dalam container:
+### Cara A — Langsung dengan Python
 
 ```bash
-docker compose exec bot python3 bot.py --dry-run --mode safe
+python signal.py
 ```
 
----
-
-## 8. Auto Claimer (Klaim Otomatis Kemenangan)
-
-Jika Anda ingin bot otomatis mengklaim token yang menang:
+### Cara B — Docker
 
 ```bash
-docker compose up -d auto-claimer
+docker compose up -d --build
 ```
 
-> Pastikan `POLY_EMAIL` dan `POLY_PASSWORD` di `.env` sudah diisi. Jika belum, layanan ini akan melewati klaim.
-
----
-
-## 9. Monitoring & Debug
-
-### Lihat Log Real-Time
+Lihat log:
 
 ```bash
-docker compose logs -f --tail=100
+docker compose logs -f signal
 ```
 
-### Lihat Status Container
-
-```bash
-docker compose ps
-```
-
-### Restart Bot
-
-```bash
-docker compose restart bot
-```
-
-### Hentikan Semua Layanan
+Berhenti:
 
 ```bash
 docker compose down
@@ -183,66 +90,73 @@ docker compose down
 
 ---
 
-## 10. Pemecahan Masalah Umum
+## 5. Membaca Output
 
-| Error                                  | Solusi                                                  |
-| -------------------------------------- | ------------------------------------------------------- |
-| `Error fetching market info`           | Market belum dibuka. Bot akan retry otomatis.           |
-| `Binance rate limit`                   | Bot retry otomatis. Tidak perlu tindakan manual.        |
-| `Login failed` (auto_claim)            | Cek `POLY_EMAIL` / `POLY_PASSWORD` / 2FA.               |
-| `.env tidak ditemukan`                 | Salin `.env.example` → `.env` dan isi.                  |
-| `Insufficient USDC`                    | Isi USDC ke dompet Anda.                                |
+```
+[07:59:45] MARKET: btc-5m-1787702100 (07:55 PM-08:00 PM ET)
+[07:59:45] SIGNAL: UP 🟢 (Conf: 75.0%) [AI]
+[07:59:45] Prices: Open 78496.00 -> Cur 78510.00
+[07:59:45] Chart  : █▇▇▆▆▆▅▅▄▄▄▅▆▄▅▅▆▆▅▅▅▄▄▄▃▃▃▂▂▂▁▂▁▁▁▂▂▂▂
+--------------------------------------------------
+```
+
+| Baris      | Arti                                                              |
+| ---------- | ----------------------------------------------------------------- |
+| `MARKET`   | Slug market dan rentang waktu window dalam ET (auto DST).         |
+| `SIGNAL`   | Arah prediksi + confidence. Tanda `[AI]` = keputusan dibantu AI.  |
+| `Prices`   | Harga buka window vs harga terkini.                               |
+| `Chart`    | Sparkline 40 menit terakhir (kanan = terkini).                    |
 
 ---
 
-## 11. Tips & Best Practices
+## 6. Cara Kerja Sinyal
 
-1. **Gunakan `--dry-run` dulu.** Uji strategi dengan data riil selama 1–2 sesi sebelum trade sungguhan.
+### Skor Aturan
 
-2. **Mulai dari mode `safe`.** Sebaiknya tidak beralih ke `degen` atau `aggressive` sebelum memahami performa bot.
+```python
+# Window delta: menjawab langsung pertanyaan market
+delta = (cur - open) / open * 100
+# |delta| > 0.10% -> ±7 | > 0.02% -> ±5 | > 0.005% -> ±3 | > 0.001% -> ±1
 
-3. **Monitor log secara rutin.** Jika terlihat banyak error Binance / rate limit, pertimbangkan mengurangi frekuensi request.
-
-4. **Jaga minimal bankroll.** Pastikan `STARTING_BANKROLL >= MIN_BET * 5` agar bot tidak terjebak saat drawdown.
-
-5. **Gunakan `.dockerignore`.** File ini sudah ada untuk mencegah `.env` / `venv` masuk image, jaga keamanan kredensial.
-
-POLY_EMAIL=your_email@example.com
-POLY_PASSWORD=your_password
-
-# Bot settings
-STARTING_BANKROLL=1.0
-MIN_BET=1.0
-BOT_MODE=safe
+# EMA 9
+if cur > ema9: score += 1
+else:          score -= 1
 ```
 
-### Penjelasan Setiap Variabel
+### AI Tiebreaker
 
-| Variabel                   | Keterangan                                                |
-| -------------------------- | --------------------------------------------------------- |
-| `POLY_PRIVATE_KEY`         | Private key dompet Polymarket (wajib).                    |
-| `POLY_API_KEY`             | API Key yang sudah diderive.                              |
-| `POLY_API_SECRET`          | API Secret yang sudah diderive.                           |
-| `POLY_API_PASSPHRASE`      | API Passphrase yang sudah diderive.                       |
-| `POLY_FUNDER_ADDRESS`      | Alamat dompet Anda.                                       |
-| `POLY_SIGNATURE_TYPE`      | `1` (POLY_PROXY / signature type default).                |
-| `POLY_EMAIL` / `POLY_PASSWORD` | Email & password akun (untuk auto_claim.py). Jika tidak pakai auto-claimer, kosongkan / hapus. |
-| `STARTING_BANKROLL`        | Bankroll awal USDC.                                       |
-| `MIN_BET`                  | Minimum taruhan per trade (USDC).                         |
-| `BOT_MODE`                 | Mode bot: `flat`, `safe`, `aggressive`, atau `degen`.     |
+- Dipanggil hanya jika `|score| <= 4` (aturan belum yakin).
+- Kirim ringkasan ringkas (delta, trend 1m/5m/15m, 12 close terakhir) — prompt panjang membuat model reasoning (`deepseek-v4-flash`) kehabisan token dan mengembalikan jawaban kosong.
+- AI dibatasi mempengaruhi confidence maksimal 70%.
+- Gagal/timeout → retry 1× → fallback ke sinyal aturan. Bot tidak pernah berhenti.
 
 ---
 
-## 5. Build & Jalankan di Docker
+## 7. Waktu & Zona (Penting)
 
-### 5.1 Build Image
+- Polymarket menggunakan timestamp Unix yang habis dibagi 300 sebagai slug market.
+- Konversi ke ET memakai `ZoneInfo("America/New_York")` — **otomatis** menangani DST:
+  - Agustus (musim panas): EDT = UTC−4.
+  - Desember (musim dingin): EST = UTC−5.
+- Contoh verifikasi: window `1787702100` = **Aug 25, 07:55 PM − 08:00 PM ET**.
 
-```bash
-docker compose build
-```
+---
 
-Proses ini akan:
-- Meng‑install semua dependensi Python (`py-clob-client`, `pandas`, `playwright`, dll).
-- Meng‑install browser Chromium untuk `auto_claim.py`.
+## 8. Troubleshooting
 
-Butuh waktu 2–5 menit tergantung jaringan.
+| Gejala                     | Solusi                                                                       |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| `Failed: api.binance.com`  | Normal jika jaringan memblokir domain itu; bot otomatis coba mirror `data-api.binance.vision`. |
+| `[AI] retry` di log        | Model reasoning timeout/kehabisan token — bot retry sekali lalu fallback.    |
+| `[AI] skipped` terus       | Cek `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` di `.env`. Atau matikan AI dengan mengosongkan `AI_API_KEY`. |
+| `ModuleNotFoundError: zoneinfo` | Pakai Python 3.9+ atau `pip install tzdata`.                                  |
+| Sinyal tidak pernah muncul  | Loop menunggu `time_into_window >= 285` (T-15s). Cek log saat menit ke-5.     |
+
+---
+
+## 9. Tips
+
+1. **AI bukan pengganti delta window.** Saat delta sudah tegas (> 0.10%), aturan menang — jangan paksa AI membaliknya.
+2. **Gunakan API key yang sesuai.** Base URL gateway menentukan model; pastikan `AI_MODEL` valid di gateway Anda (mis. 9router `coding-fast`).
+3. **Amati beberapa window dulu.** Catat akurasi sinyal vs hasil aktual sebelum mengintegrasikan ke bot trading sungguhan.
+4. **Jaga log.** Redirect output ke file bila menjalankan di background: `python signal.py >> signal.log 2>&1`.
