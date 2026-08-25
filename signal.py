@@ -3,10 +3,13 @@ import time
 import json
 import requests
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 load_dotenv()
+
+ET = ZoneInfo("America/New_York")  # auto-detect EDT/EST (DST)
 
 BINANCE_URLS = [
     "https://api.binance.com/api/v3/klines",
@@ -189,9 +192,10 @@ def main():
             if time_into_window >= 285 and current_window != last_window:
                 direction, confidence, op, cp, ai_used, closes = get_signal()
                 if direction:
-                    # Convert window epoch to ET (EDT = UTC-4)
-                    et_window = datetime.utcfromtimestamp(current_window) - timedelta(hours=4)
-                    et_str = et_window.strftime("%I:%M %p ET")
+                    # Window epoch -> ET (auto DST via ZoneInfo)
+                    et_start = datetime.fromtimestamp(current_window, tz=ET)
+                    et_end = datetime.fromtimestamp(current_window + 300, tz=ET)
+                    et_str = f"{et_start.strftime('%I:%M %p')}-{et_end.strftime('%I:%M %p')} ET"
                     ts = datetime.now().strftime("%H:%M:%S")
                     print(f"[{ts}] MARKET: btc-5m-{current_window} ({et_str})")
                     print(f"[{ts}] SIGNAL: {direction} (Conf: {confidence:.1f}%){' [AI]' if ai_used else ''}")
