@@ -1,0 +1,7 @@
+services:
+  signal:
+    build: .
+    image: polymarket-signal:latest
+    restart: unless-stopped
+    network_mode: host
+    command: python3 -u signal.py
