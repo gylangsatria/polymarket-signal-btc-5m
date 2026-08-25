@@ -31,6 +31,18 @@ playwright>=1.40.0        # Browser automation for auto-claiming wins
 openpyxl>=3.1.0           # Excel output for comparison tool
 ```
 
+### AI Tiebreaker (optional)
+
+`signal.py` dapat bertanya ke model AI (endpoint OpenAI-compatible, mis. 9router/coding-fast) ketika sinyal aturan lemah (`|score| <= 4`). AI hanya menambah konfidensi/membalik arah saat aturan tidak yakin — **delta jendela tetap raja**. Konfigurasi di `.env`:
+
+```env
+AI_API_KEY=sk-...
+AI_BASE_URL=https://ai-gateway.gylang.my.id/v1
+AI_MODEL=coding-fast
+```
+
+Jika gagal/limit, bot otomatis fallback ke sinyal aturan. Tambahan `Chart:` di output adalah sparkline harga 40 menit terakhir (zero-dependency).
+
 ---
 
 ## Core Concept: Clock-Based Snipe Timing
