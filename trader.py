@@ -37,6 +37,9 @@ def _flag(name, default="false"):
 AUTO_TRADE = _flag("AUTO_TRADE")
 DRY_RUN = _flag("TRADE_DRY_RUN")
 TRADE_ON_URGENT = _flag("TRADE_ON_URGENT")
+# Setelah TAKE-PROFIT, berhenti entry di window yang sama (tunggu market berikutnya).
+# false = perilaku lama: bisa beli lagi (scalping berulang dalam 1 window).
+STOP_AFTER_TAKE_PROFIT = _flag("STOP_AFTER_TAKE_PROFIT", default="true")
 # Mode agresif: probabilitas prediksi >= TRADE_MIN_PROB -> langsung FOK,
 # lewati guard harga TRADE_MAX_ASK (asal ada likuiditas di book).
 AGGRESSIVE = _flag("TRADE_AGGRESSIVE")

@@ -402,6 +402,8 @@ def main():
                               f"{trader.SELL_ROI_MIN*100:.0f}% — TAKE-PROFIT")
                         if do_sell(w, token_id, shares, reason="TAKE-PROFIT"):
                             position = None
+                            if trader.STOP_AFTER_TAKE_PROFIT:
+                                stopped = True  # kunci profit — tunggu market berikutnya
                     elif bid <= trader.SELL_CUT_LOSS:
                         elapsed = time.time() - ts_entry
                         if elapsed < trader.SELL_CUT_LOSS_MIN_ELAPSED:
