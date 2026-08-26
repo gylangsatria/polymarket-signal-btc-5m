@@ -162,21 +162,18 @@ def ask_ai(delta_pct, cur_price, closes):
         )
         r.raise_for_status()
         # Gateway kadang menambahkan 'data: [DONE]' setelah JSON; potong di antara { ... }.
+        import re
         text = r.text.strip()
-        s, e = text.find("{"), text.rfind("}")
-        if s == -1 or e <= s:
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if not match:
             raise json.JSONDecodeError("no json object", text, 0)
-        body = json.loads(text[s:e + 1])
+        body = json.loads(match.group(0))
         msg = body["choices"][0]["message"]
-        # Model reasoning (deepseek-r1) kadang menaruh jawaban di reasoning_content saat token habis.
         content = (msg.get("content") or msg.get("reasoning_content") or "").strip()
-        # Cari JSON object pertama di output (model kadang nambah teks tambahan).
-        start = content.find("{")
-        end = content.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            data = json.loads(content[start:end + 1])
-        else:
-            raise json.JSONDecodeError("no json object", content, 0)
+        match_inner = re.search(r'\{.*\}', content, re.DOTALL)
+        if not match_inner:
+            raise json.JSONDecodeError("no json object in content", content, 0)
+        data = json.loads(match_inner.group(0))
         d = str(data.get("direction", "")).upper()
         c = float(data.get("confidence", 50))
         if d in ("UP", "DOWN"):
@@ -201,16 +198,17 @@ def ask_ai(delta_pct, cur_price, closes):
             timeout=12,
         )
         r.raise_for_status()
+        import re
         text = r.text.strip()
-        s, e = text.find("{"), text.rfind("}")
-        if s == -1 or e <= s:
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if not match:
             raise json.JSONDecodeError("no json object", text, 0)
-        body = json.loads(text[s:e + 1])
+        body = json.loads(match.group(0))
         content = (body["choices"][0]["message"].get("content") or "").strip()
-        s, e = content.find("{"), content.rfind("}")
-        if s == -1 or e <= s:
-            raise json.JSONDecodeError("no json object", content, 0)
-        data = json.loads(content[s:e + 1])
+        match_inner = re.search(r'\{.*\}', content, re.DOTALL)
+        if not match_inner:
+            raise json.JSONDecodeError("no json object in content", content, 0)
+        data = json.loads(match_inner.group(0))
         d = str(data.get("direction", "")).upper()
         c = float(data.get("confidence", 50))
         if d in ("UP", "DOWN"):
