@@ -31,8 +31,9 @@ SPARK = "▁▂▃▄▅▆▇█"
 
 # Sinyal URGENT jika delta sangat kuat di awal window.
 TRIGGER_URGENT_MIN_DELTA = 0.15
-TRIGGER_FIRST_SEC = 120   # T-180s
-TRIGGER_CONFIRM_SEC = 240 # T-60s (1 menit sebelum tutup)
+# Trigger menyesuaikan durasi dari trader.py
+TRIGGER_FIRST_SEC = trader.TRIGGER_FIRST_SEC
+TRIGGER_CONFIRM_SEC = trader.TRIGGER_CONFIRM_SEC
 # Recheck interval (detik) untuk entry dinamis & kelola posisi (TP/cut-loss).
 # Default 5 = lebih responsif. Turunkan hati-hati: tiap recheck fetch Binance+CLOB (rate limit).
 try:
@@ -162,7 +163,10 @@ def ask_ai(delta_pct, cur_price, closes):
         r.raise_for_status()
         # Gateway kadang menambahkan 'data: [DONE]' setelah JSON; potong di antara { ... }.
         text = r.text.strip()
-        body = json.loads(text[text.find("{"): text.rfind("}") + 1])
+        s, e = text.find("{"), text.rfind("}")
+        if s == -1 or e <= s:
+            raise json.JSONDecodeError("no json object", text, 0)
+        body = json.loads(text[s:e + 1])
         msg = body["choices"][0]["message"]
         # Model reasoning (deepseek-r1) kadang menaruh jawaban di reasoning_content saat token habis.
         content = (msg.get("content") or msg.get("reasoning_content") or "").strip()
@@ -198,9 +202,15 @@ def ask_ai(delta_pct, cur_price, closes):
         )
         r.raise_for_status()
         text = r.text.strip()
-        body = json.loads(text[text.find("{"): text.rfind("}") + 1])
+        s, e = text.find("{"), text.rfind("}")
+        if s == -1 or e <= s:
+            raise json.JSONDecodeError("no json object", text, 0)
+        body = json.loads(text[s:e + 1])
         content = (body["choices"][0]["message"].get("content") or "").strip()
-        data = json.loads(content[content.find("{"): content.rfind("}") + 1])
+        s, e = content.find("{"), content.rfind("}")
+        if s == -1 or e <= s:
+            raise json.JSONDecodeError("no json object", content, 0)
+        data = json.loads(content[s:e + 1])
         d = str(data.get("direction", "")).upper()
         c = float(data.get("confidence", 50))
         if d in ("UP", "DOWN"):
@@ -285,8 +295,22 @@ def emit_signal(current_window, stats, tag, prev_up=None):
     return (current_window, up, d_abs, prob)
 
 
+HARD_FAIL_KEYWORDS = (
+    "InsufficientLiquidityError",
+    "No resting liquidity",
+    "not enough balance",
+    "RequestRejectedError",
+)
+
+
+def _is_hard_fail(msg):
+    """True jika kegagalan entry dari sistem (likuiditas/saldo/reject), bukan guard harga."""
+    m = (msg or "").lower()
+    return any(k.lower() in m for k in HARD_FAIL_KEYWORDS)
+
+
 def do_trade(current_window, up, prob=None):
-    """Eksekusi auto-trade via trader.py. Return True jika order sukses."""
+    """Eksekusi auto-trade via trader.py. Return dict res."""
     global position
     ts = datetime.now().strftime("%H:%M:%S")
     res = trader.trade(current_window, up, prob=prob)
@@ -302,19 +326,32 @@ def do_trade(current_window, up, prob=None):
             price = spent / shares if shares else 0.0  # harga beli rata-rata
             position = (current_window, "UP" if up else "DOWN", res["token_id"], res["shares"], price, time.time())
             save_position(position)
-        return True
+        return res
     else:
         print(f"[{ts}] TRADE [SKIP]: {trader.SLUG_PREFIX}-{current_window} ({res.get('msg')})")
-    return res.get("ok", False)
+    return res
 
 
 def do_sell(window_ts, token_id, shares, reason="TAKE-PROFIT"):
-    """Jual posisi (FOK). Return True jika terisi."""
+    """Jual posisi (FOK, fallback parsial). Kelola global position: habis -> None,
+    parsial -> sisa shares disimpan. Return True jika ada share terjual."""
+    global position
     ts = datetime.now().strftime("%H:%M:%S")
     res = trader.sell(token_id, shares)
     if res.get("ok"):
-        print(f"[{ts}] SELL [{reason}]: {trader.SLUG_PREFIX}-{window_ts} token={token_id[:12]} "
-              f"received=${res.get('received')}")
+        sold = float(res.get("sold_shares", shares))
+        if sold >= float(shares) - 1e-9:
+            print(f"[{ts}] SELL [{reason}]: {trader.SLUG_PREFIX}-{window_ts} token={token_id[:12]} "
+                  f"received=${res.get('received')}")
+            position = None
+            save_position(position)
+        else:
+            remaining = round(float(shares) - sold, 6)
+            print(f"[{ts}] SELL [{reason} PARSIAL]: {trader.SLUG_PREFIX}-{window_ts} token={token_id[:12]} "
+                  f"sold={sold:.6f} sisa={remaining} received=${res.get('received')}")
+            w, d, tok, _sh, entry, t = position
+            position = (w, d, tok, remaining, entry, t)
+            save_position(position)
         return True
     print(f"[{ts}] SELL [{reason} SKIP]: {trader.SLUG_PREFIX}-{window_ts} ({res.get('msg')})")
     return False
@@ -374,11 +411,13 @@ def main():
         print(f"Posisi tersimpan dipulihkan: {trader.SLUG_PREFIX}-{int(position[0])} {position[1]} "
               f"({position[3]} shares)")
 
+    fail_streak = 0
     while True:
         try:
             now = int(time.time())
-            current_window = now - (now % 300)
-            time_into_window = now % 300
+            window_size = trader.WINDOW_SECONDS
+            current_window = now - (now % window_size)
+            time_into_window = now % window_size
 
             # Window baru → reset penanda sinyal
             if current_window != last_window:
@@ -386,6 +425,7 @@ def main():
                 urgent_done = first_done = second_done = False
                 window_up = None  # arah PREDIKSI window ini (acuan anti-whipsaw)
                 last_recheck = 0.0
+                fail_streak = 0
                 # Posisi dari window yang sudah tutup → selesai (settle otomatis).
                 # Posisi window SEKARANG (dipulihkan dari file) → tetap dikelola.
                 if position and position[0] != current_window:
@@ -395,12 +435,14 @@ def main():
 
             # Verifikasi hasil window sebelumnya (kline final siap ~10s setelah tutup)
             if pending and current_window != pending[0] and time_into_window >= 10:
-                # ... (kode verifikasi tetap sama) ...
+                # ...
                 w, up, d_abs, _ = pending
-                df = fetch_price(limit=20)
+                # Fetch price window lama (ts window tutup = w + durasi - 60s utk kline 1m terakhir)
+                # Sederhananya ambil kline di sekitar timestamp penutupan.
+                df = fetch_price(limit=50)
                 if df is not None and not df.empty:
                     o = df[df["ts"] == w * 1000]
-                    c = df[df["ts"] == (w + 240) * 1000]
+                    c = df[df["ts"] == (w + window_size - 60) * 1000]
                     if not o.empty and not c.empty:
                         open_p = o["open"].iloc[0]
                         final_p = c["close"].iloc[0]
@@ -414,8 +456,9 @@ def main():
                         print(f"[{ts}] VERIFY: {trader.SLUG_PREFIX}-{w} {mark} (close {final_p:.2f} vs open {open_p:.2f}) | win rate {wins/total*100:.1f}% ({wins}/{total})")
                         pending = None
 
-            # Sinyal URGENT (60s - 120s) - Hanya jika delta sangat kuat (>= 0.15%)
+            # Sinyal URGENT - Hanya jika delta sangat kuat (>= 0.15%)
             if 60 <= time_into_window < TRIGGER_FIRST_SEC and not urgent_done:
+                # ...
                 _, _, op, cp, _, _, _ = get_signal()
                 delta = (cp - op) / op * 100
                 if abs(delta) >= TRIGGER_URGENT_MIN_DELTA:
@@ -425,21 +468,16 @@ def main():
                         window_up = p[1]
                     urgent_done = True
 
-            # Sinyal awal di menit ke-2 (T-180s)
+            # Sinyal awal
             if time_into_window >= TRIGGER_FIRST_SEC and not first_done:
-                # Jika sudah urgent, tidak perlu cetak prediksi dasar kecuali arah berubah (jarang)
                 p = emit_signal(current_window, stats, "PREDIKSI")
                 if p:
                     pending = p
                     window_up = p[1]
                 first_done = True
 
-            # Entry dinamis: SETELAH PREDIKSI dicetak (menit ke-2, 120s), selama tidak
-            # pegang posisi, belum kalah, & masih ada waktu — cek tiap recheck. Beli jika
-            # prob bagus & harga cocok (guard HARD/MIN/EV di trader.py) serta searah tren.
-            # Mulai di 120s: tidak beli sebelum ada hasil prediksi.
-            # Hanya aktif di mode AUTO-TRADE (AUTO_TRADE=true); signal-only = prediksi saja.
-            if (not position and not stopped and 120 <= time_into_window <= 270
+            # Entry dinamis: SETELAH PREDIKSI, sampai T-30s
+            if (not position and not stopped and 120 <= time_into_window <= window_size - 30
                     and time.time() - last_recheck >= RECHECK_INTERVAL):
                 last_recheck = time.time()
                 direction, confidence, op, cp, _, _, _ = get_signal(allow_ai=False)
@@ -454,7 +492,15 @@ def main():
                         ts = datetime.now().strftime("%H:%M:%S")
                         print(f"[{ts}] SKIP entry {direction}: delta {delta:+.3f}% lawan arah — tunggu tren")
                     elif trader.enabled():
-                        do_trade(current_window, up, prob)
+                        res = do_trade(current_window, up, prob)
+                        if res and not res.get("ok") and _is_hard_fail(res.get("msg", "")):
+                            fail_streak += 1
+                            if fail_streak >= trader.ENTRY_FAIL_STOP_AFTER:
+                                ts = datetime.now().strftime("%H:%M:%S")
+                                print(f"[{ts}] {fail_streak}x gagal entry beruntun (likuiditas/saldo) — stop entry window ini")
+                                stopped = True
+                        else:
+                            fail_streak = 0
 
             # Kelola posisi tiap recheck: TAKE-PROFIT jika ROI >= SELL_ROI_MIN,
             # CUT-LOSS jika bid <= SELL_CUT_LOSS (sisa nilai — jual daripada hangus 0),
@@ -472,22 +518,29 @@ def main():
                         print(f"[{ts}] TARGET: bid {bid:.2f} ROI {roi*100:.1f}% >= "
                               f"{trader.SELL_ROI_MIN*100:.0f}% — TAKE-PROFIT")
                         if do_sell(w, token_id, shares, reason="TAKE-PROFIT"):
-                            position = None
-                            save_position(position)
                             if trader.STOP_AFTER_TAKE_PROFIT:
-                                stopped = True  # kunci profit — tunggu market berikutnya
+                                if not trader.ALLOW_REENTRY:
+                                    stopped = True  # benar-benar berhenti
+                                else:
+                                    # ALLOW_REENTRY=true: posisi dihapus, tapi stopped tetap false.
+                                    # Bot akan masuk ke blok `if not position` lagi di detik berikutnya.
+                                    pass
+                            else:
+                                pass # perilaku lama, bisa beli lagi
                     elif bid <= trader.SELL_CUT_LOSS:
                         elapsed = time.time() - ts_entry
-                        if elapsed < trader.SELL_CUT_LOSS_MIN_ELAPSED:
+                        if bid <= trader.SELL_CUT_LOSS_EMERGENCY:
+                            print(f"[{ts}] TARGET: bid {bid:.2f} <= emergency {trader.SELL_CUT_LOSS_EMERGENCY:.2f} — CUT-LOSS (jangan tunggu 90s, posisi mati)")
+                            if do_sell(w, token_id, shares, reason="CUT-LOSS"):
+                                stopped = True
+                        elif elapsed < trader.SELL_CUT_LOSS_MIN_ELAPSED:
                             print(f"[{ts}] bid {bid:.2f} <= cut-loss, tapi baru {elapsed:.0f}s "
                                   f"sejak entry (< {trader.SELL_CUT_LOSS_MIN_ELAPSED:.0f}s) — HOLD, "
                                   f"jangan cut di titik rendah")
                         else:
                             print(f"[{ts}] TARGET: bid {bid:.2f} <= {trader.SELL_CUT_LOSS:.2f} — CUT-LOSS")
                             if do_sell(w, token_id, shares, reason="CUT-LOSS"):
-                                position = None
-                                save_position(position)
-                                stopped = True  # stop entry: 1 rugi per window cukup
+                                stopped = True
                     else:
                         print(f"[{ts}] POS: {direction} bid={bid:.2f} ROI {roi*100:.1f}% — hold "
                               f"(jual ROI >= {trader.SELL_ROI_MIN*100:.0f}% / cut-loss <= {trader.SELL_CUT_LOSS:.2f})")
@@ -506,8 +559,6 @@ def main():
                             ts = datetime.now().strftime("%H:%M:%S")
                             print(f"[{ts}] KONFIRMASI {conf_dir} berlawanan posisi {pos_dir} — CUT-LOSS")
                             if do_sell(w, token_id, shares, reason="CUT-LOSS"):
-                                position = None
-                                save_position(position)
                                 stopped = True  # stop entry: jangan beli lagi setelah kalah
                 second_done = True
 

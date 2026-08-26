@@ -117,17 +117,18 @@ Saat `AUTO_TRADE=true`, bot mengeksekusi market order **FOK** (fill-or-kill) di 
 - **Sinyal UP** → beli token **Up** (`btc-updown-5m-{window}`), **sinyal DOWN** → beli token **Down**.
 - **Entry dinamis**: mulai saat PREDIKSI dicetak (menit ke-2, 120s) sampai menit ke-4,5 (270s), bot mengecek tiap `RECHECK_INTERVAL` detik (default 5) — tidak ada order sebelum hasil prediksi. Masuk begitu probabilitas & harga cocok. Tidak perlu order parsial menggantung.
 - **Guard harga adaptif (EV≥0, semua mode)**:
-  - `TRADE_MIN_PROB_ENTRY` (50) — **lantai keyakinan mutlak**: prob < 50% tidak pernah masuk, jalur mana pun (model ragu = sering salah arah).
+  - `TRADE_MIN_PROB_ENTRY` (50) — **lantai keyakinan mutlak**: prob < 50% tidak pernah masuk.
   - `TRADE_HARD_MAX_ASK` (0.85) — ceiling mutlak: tidak pernah bayar lebih dari 85¢.
-  - **Guard EV**: bayar harus **lebih kecil** dari keyakinan model — `ask < prob%` (EV > 0, ada margin untuk salah). Harga 0.70–0.85 boleh dibeli **hanya jika model yakin di atasnya**; `ask == prob` (EV 0) ditolak.
-  - `TRADE_MIN_ASK` (0.35) — jangan beli token semurah ini (sisi yang pasar sudah yakin kalah).
-- **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas ≥ `TRADE_MIN_PROB` (75) → langsung FOK, **lewati** `TRADE_MAX_ASK` — tapi **tetap tunduk** lantai `TRADE_MIN_PROB_ENTRY`, ceiling `TRADE_HARD_MAX_ASK`, guard EV (`ask ≤ prob%`), & `TRADE_MIN_ASK`.
-- **Anti-melawan-pasar**: entry hanya jika arah sinyal **searah tren harga saat ini** (UP saat harga naik, DOWN saat turun); kalau melawan tren, tunggu.
-- **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap `RECHECK_INTERVAL` detik (default 5).
-  - ROI ≥ `SELL_ROI_MIN` (10%) → jual FOK, kunci profit, lalu **berhenti di window itu** (tunggu market berikutnya). Set `STOP_AFTER_TAKE_PROFIT=false` untuk perilaku lama: bisa beli lagi / scalping dalam 1 window.
-  - bid ≤ `SELL_CUT_LOSS` (0.25) **dan** sudah ≥ `SELL_CUT_LOSS_MIN_ELAPSED` (90s) sejak entry → jual FOK, ambil sisa nilai, lalu **berhenti entry di window itu** (1 rugi per window cukup).
-  - Jeda 90s = window 5m volatil di menit 1-2; tanpa jeda bot sempat cut @0.36 padahal prediksi benar (harga sempat menyapu rendah lalu kembali).
-  - KONFIRMASI berlawanan arah dengan posisi → cut-loss **segera** (tanpa jeda) + stop entry.
+  - `TRADE_MAX_ASK` (0.60) — **batas harga masuk**: berlaku semua mode (termasuk agresif).
+  - **Guard EV**: bayar harus **lebih kecil** dari keyakinan model — `ask < prob%`.
+- **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas ≥ `TRADE_MIN_PROB` (75) → lewati antrian, langsung FOK — tetap tunduk batas `TRADE_MAX_ASK` dan guard EV.
+- **Take-profit & cut-loss**:
+  - ROI ≥ `SELL_ROI_MIN` (10%) → jual FOK, kunci profit.
+  - bid ≤ `SELL_CUT_LOSS_EMERGENCY` (0.10) → **jual langsung** (tanpa jeda).
+  - bid ≤ `SELL_CUT_LOSS` (0.25) **dan** sudah ≥ 90s → jual.
+  - Jika buku order tipis, bot mencoba **jual parsial** sebatas likuiditas yang ada (sisa nilai lebih baik dari nol).
+- **Cooldown**: 3× gagal entry beruntun (likuiditas/saldo) → stop entry di window itu.
+- **Cek Saldo**: bot mengecek saldo USDC sebelum order; jika saldo < nominal, window di-skip otomatis.
 - **Maksimal 1 posisi terbuka**, dan default **1 trade per window** (profit atau rugi) — sisanya tunggu market berikutnya.
 - `TRADE_ON_URGENT=true` → sinyal URGENT (delta ≥ 0.15% di awal) juga dieksekusi; `TRADE_DRY_RUN=true` → cetak rencana order tanpa eksekusi (uji coba aman).
 

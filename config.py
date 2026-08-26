@@ -28,7 +28,12 @@ FIELDS = [
     ("SELL_ROI_MIN",            "Take-profit ROI minimal (0.10 = +10%)", "float", 0.0, 1.0),
     ("SELL_CUT_LOSS",           "Cut-loss: jual jika best bid <= ambang ini", "float", 0.0, 0.6),
     ("SELL_CUT_LOSS_MIN_ELAPSED", "Jangan cut-loss di < N detik pertama sejak entry", "float", 0, 240),
+    ("SELL_CUT_LOSS_EMERGENCY", "Cut-loss darurat: bid <= ambang ini langsung jual tanpa jeda 90s", "float", 0.01, 0.3),
+    ("ENTRY_FAIL_STOP_AFTER", "Setelah N kegagalan entry beruntun (likuiditas/saldo) berhenti di window itu", "int", 1, 10),
     ("STOP_AFTER_TAKE_PROFIT",  "Setelah take-profit: berhenti di window itu (tunggu market berikutnya)", "bool"),
+    ("ALLOW_REENTRY",           "Bisa beli lagi (scalping) dalam window yang sama setelah TP/exit", "bool"),
+    ("MARKET_TICKER",           "Ticker aset Polymarket (btc, eth, dll)", "str"),
+    ("MARKET_DURATION",         "Durasi market (5m, 1h, 1d)", "str"),
     ("TRADE_ON_URGENT",         "Eksekusi juga sinyal URGENT (delta >= 0.15%)", "bool"),
     ("TRADE_DRY_RUN",           "DRY-RUN: cetak rencana order tanpa eksekusi", "bool"),
 ]

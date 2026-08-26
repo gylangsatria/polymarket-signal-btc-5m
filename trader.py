@@ -104,6 +104,23 @@ try:
 except ValueError:
     SELL_CUT_LOSS_MIN_ELAPSED = 90
 
+# Cut-loss darurat: jika best bid <= ambang ini, jual LANGSUNG tanpa menunggu
+# SELL_CUT_LOSS_MIN_ELAPSED. Posisi yang runtuh ke <= 0.10 di detik-detik pertama
+# hampir pasti mati — menunggu 90s hanya menyisakan nilai ~0 (log 17:58 window
+# 1787766900: bid 0.30 -> 0.07 dalam 25s, baru boleh cut di 93s, jual @0.02).
+try:
+    SELL_CUT_LOSS_EMERGENCY = float(os.getenv("SELL_CUT_LOSS_EMERGENCY", "0.10").strip() or 0.10)
+except ValueError:
+    SELL_CUT_LOSS_EMERGENCY = 0.10
+
+# Setelah N kali kegagalan entry beruntun dari sistem (likuiditas/saldo/order
+# ditolak), berhenti entry di window itu — jangan spam FOK tiap recheck ke book
+# yang kosong atau saldo yang sudah habis (log: 25x "No resting liquidity").
+try:
+    ENTRY_FAIL_STOP_AFTER = int(float(os.getenv("ENTRY_FAIL_STOP_AFTER", "3").strip() or 3))
+except ValueError:
+    ENTRY_FAIL_STOP_AFTER = 3
+
 # Take-profit ROI: jual saat (bid - entry) / entry >= ambang ini (default 10%).
 try:
     SELL_ROI_MIN = float(os.getenv("SELL_ROI_MIN", "0.10").strip() or 0.10)
@@ -111,8 +128,26 @@ except ValueError:
     SELL_ROI_MIN = 0.10
 
 # Prefix slug market Polymarket: {asset}-updown-{duration}-{window_start_ts}
-# (diverifikasi dari gamma-api: "btc-updown-5m-1787709300" = window 01:55-02:00 UTC)
-SLUG_PREFIX = "btc-updown-5m"
+MARKET_TICKER = os.getenv("MARKET_TICKER", "btc").strip().lower()
+MARKET_DURATION = os.getenv("MARKET_DURATION", "1h").strip().lower()
+SLUG_PREFIX = f"{MARKET_TICKER}-updown-{MARKET_DURATION}"
+
+# Konversi durasi ke detik untuk perhitungan window
+def get_duration_seconds():
+    d = MARKET_DURATION
+    if d.endswith("m"): return int(d[:-1]) * 60
+    if d.endswith("h"): return int(d[:-1]) * 3600
+    if d.endswith("d"): return int(d[:-1]) * 86400
+    return 3600 # default 1h
+
+WINDOW_SECONDS = get_duration_seconds()
+# Trigger sinyal menyesuaikan durasi (T-60s untuk konfirmasi)
+TRIGGER_CONFIRM_SEC = WINDOW_SECONDS - 60
+# Prediksi dasar di tengah window atau minimal 2 menit setelah buka
+TRIGGER_FIRST_SEC = max(120, WINDOW_SECONDS // 2)
+
+# Mode beli lagi setelah TP (Scalping dalam 1 window)
+ALLOW_REENTRY = _flag("ALLOW_REENTRY", default="false")
 
 _client = None
 
@@ -172,6 +207,30 @@ def get_best_bid(token_id):
     return max(float(x["price"]) for x in bids) if bids else None
 
 
+def get_collateral_balance():
+    """Saldo USDC (dolar) di deposit wallet. None jika query gagal.
+
+    CLOB /balance memakai base units (micro-USDC): 218249 = $0.218249.
+    """
+    try:
+        client = get_client()
+        ba = client.get_balance_allowance(asset_type="COLLATERAL")
+        return ba.balance / 1e6
+    except Exception:
+        return None
+
+
+def _bid_depth(token_id):
+    """Total size bid (shares) di CLOB order book. 0 jika tidak ada pembeli."""
+    import requests
+
+    try:
+        b = requests.get(f"https://clob.polymarket.com/book?token_id={token_id}", timeout=10).json()
+        return sum(float(x.get("size", 0)) for x in (b.get("bids") or []))
+    except Exception:
+        return 0.0
+
+
 def check_entry(token_id):
     """None jika layak eksekusi, else pesan kenapa skip."""
     ask = get_best_ask(token_id)
@@ -209,8 +268,17 @@ def trade(window_ts, up, prob=None):
             with PublicClient() as pc:
                 market = pc.get_market(slug=slug)
             token_id = pick_token_id(market, up)
+            ask = get_best_ask(token_id)
+            if ask is None:
+                print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} SKIP (ask kosong — no liquidity)")
+                return {"ok": False, "msg": "DRY-RUN SKIP", "reason": "ask kosong"}
+
+            # Batas harga masuk SEMUA mode (termasuk agresif) di DRY-RUN
+            if ask > MAX_ASK_PRICE:
+                print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} SKIP (ask {ask:.2f} > TRADE_MAX_ASK={MAX_ASK_PRICE} — semua mode)")
+                return {"ok": False, "msg": "DRY-RUN SKIP", "reason": "harga terlalu mahal"}
+
             if aggressive:
-                ask = get_best_ask(token_id)
                 print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} ${AMOUNT_USD:.2f} "
                       f"token={token_id} (market {market.id}) ask={ask} [AGRESIF prob={prob:.1f}%]")
                 return {"ok": True, "msg": "DRY-RUN", "token_id": token_id}
@@ -245,27 +313,37 @@ def trade(window_ts, up, prob=None):
         if not token_id:
             return {"ok": False, "msg": f"outcome '{side_txt}' tidak punya token id ({slug})"}
 
-        # Batas HARD: ceiling mutlak — semua mode (termasuk agresif) skip jika harga masuk terlalu mahal.
+        # Batas HARD: ceiling mutlak — semua mode skip jika harga masuk terlalu mahal.
         ask = get_best_ask(token_id)
-        if ask is not None and ask > HARD_MAX_ASK:
+        if ask is None:
+            return {"ok": False, "msg": f"{slug} skip: ask kosong (no liquidity)"}
+        if ask > HARD_MAX_ASK:
             return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} > TRADE_HARD_MAX_ASK={HARD_MAX_ASK} (harga terlalu mahal — EV negatif)"}
+
+        # Batas harga masuk SEMUA mode (termasuk agresif): tidak pernah bayar > TRADE_MAX_ASK.
+        # Sebelumnya agresif melewati guard ini -> entry 0.69/0.84 di book tipis = spread lebar + kalah total.
+        if ask > MAX_ASK_PRICE:
+            return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} > TRADE_MAX_ASK={MAX_ASK_PRICE} (harga masuk maksimal — semua mode)"}
+
         # Batas MIN: token semurah ini hampir pasti kalah — jangan lawan pasar.
-        if ask is not None and ask < MIN_ASK_PRICE:
+        if ask < MIN_ASK_PRICE:
             return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} < TRADE_MIN_ASK={MIN_ASK_PRICE} (sisi hampir pasti kalah)"}
+
+        # Cek saldo SEBELUM order: kalau < nominal, skip window (jangan spam FOK yang ditolak).
+        bal = get_collateral_balance()
+        if bal is not None and bal < AMOUNT_USD:
+            return {"ok": False, "msg": f"{slug} skip: saldo ${bal:.4f} < TRADE_AMOUNT_USD=${AMOUNT_USD:.2f} (not enough balance — top up Polymarket)"}
 
         # Guard EV adaptif — berlaku SEMUA mode (termasuk agresif): bayar HARUS lebih kecil
         # dari keyakinan model (EV > 0). EV = prob% - ask; ask == prob berarti EV 0
-        # (tidak ada margin untuk salah) -> tolak. Ini yang membuat harga 0.7-0.85 tetap
-        # bisa dibeli saat model yakin (prob > ask%), tanpa pernah beli EV <= 0.
-        if prob is not None and ask is not None and ask >= prob / 100:
+        # (tidak ada margin untuk salah) -> tolak.
+        if prob is not None and ask >= prob / 100:
             return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} >= prob {prob:.0f}% (EV tidak positif)"}
 
         if not aggressive:
-            reason = check_entry(token_id)
-            if reason:
-                return {"ok": False, "msg": f"{slug} skip: {reason}"}
+            pass
         else:
-            print(f"[{ts}] agresif: prob={prob:.1f}% >= TRADE_MIN_PROB={MIN_PROB} — FOK (EV guard aktif: bayar <= prob)")
+            print(f"[{ts}] agresif: prob={prob:.1f}% >= TRADE_MIN_PROB={MIN_PROB} — FOK (tetap bayar <= TRADE_MAX_ASK & prob)")
 
         resp = client.place_market_order(
             token_id=token_id,
@@ -296,23 +374,52 @@ def trade(window_ts, up, prob=None):
 
 
 def sell(token_id, shares):
-    """Jual semua shares token (take-profit) via FOK. Return {ok, ...}.
+    """Jual shares token (take-profit/cut-loss) via FOK.
 
-    SELL: taking_amount = USDC diterima.
+    Kalau FOK penuh ditolak karena depth kurang ("couldn't be fully filled" /
+    "No resting liquidity"), retry parsial sebesar total depth yang tersedia —
+    sisa nilai > menunggu likuiditas yang tidak datang (log: cut @0.02 padahal
+    bid 0.07 sempat ada, tapi FOK menolak karena size tidak cukup).
+
+    Return {ok, sold_shares, received}.
     """
     ts = time.strftime("%H:%M:%S")
+
+    def _place(size):
+        try:
+            resp = client.place_market_order(
+                token_id=token_id, side="SELL", shares=str(size), order_type="FOK",
+            )
+            return resp, None
+        except Exception as e:
+            return None, f"{type(e).__name__}: {e}"
+
     try:
         client = get_client()
-        resp = client.place_market_order(
-            token_id=token_id,
-            side="SELL",
-            shares=str(shares),
-            order_type="FOK",
-        )
-        if not resp.ok:
-            return {"ok": False, "msg": getattr(resp, "message", "sell ditolak")}
-        print(f"[{ts}] SELL: token={token_id[:12]} shares={shares} status={resp.status} "
-              f"received=${resp.taking_amount}")
-        return {"ok": True, "status": resp.status, "received": str(resp.taking_amount)}
+        resp, err = _place(shares)
+        if resp is not None and resp.ok:
+            print(f"[{ts}] SELL: token={token_id[:12]} shares={shares} status={resp.status} "
+                  f"received=${resp.taking_amount}")
+            return {"ok": True, "sold_shares": float(shares), "received": str(resp.taking_amount)}
+
+        if resp is not None:
+            err = getattr(resp, "message", "sell ditolak")
+        low = (err or "").lower()
+        if "fully filled" in low or "resting liquidity" in low:
+            # FOK penuh gagal karena depth kurang → jual sebesar yang tersedia.
+            depth = _bid_depth(token_id)
+            sellable = round(min(float(shares), depth), 6)
+            if sellable <= 0:
+                return {"ok": False, "sold_shares": 0, "msg": f"{err} (tidak ada bid tersisa)"}
+            print(f"[{ts}] SELL FOK {shares} gagal (depth bid {depth:.4f}) — retry parsial {sellable}")
+            resp2, err2 = _place(sellable)
+            if resp2 is not None and resp2.ok:
+                print(f"[{ts}] SELL: token={token_id[:12]} shares={sellable} status={resp2.status} "
+                      f"received=${resp2.taking_amount}")
+                return {"ok": True, "sold_shares": sellable, "received": str(resp2.taking_amount)}
+            if resp2 is not None:
+                err2 = getattr(resp2, "message", "sell parsial ditolak")
+            return {"ok": False, "sold_shares": 0, "msg": str(err2)}
+        return {"ok": False, "sold_shares": 0, "msg": str(err)}
     except Exception as e:
-        return {"ok": False, "msg": f"{type(e).__name__}: {e}"}
+        return {"ok": False, "sold_shares": 0, "msg": f"{type(e).__name__}: {e}"}
