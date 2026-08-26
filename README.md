@@ -214,6 +214,31 @@ docker compose up -d --build
 
 ---
 
+## Pengaturan Interaktif (config.py)
+
+Semua pengaturan bot hidup di **`.env`**. Ada menu interaktif untuk mengubahnya tanpa edit manual:
+
+```bash
+python3 config.py
+```
+
+1. Pilih nomor parameter (mode, nominal, interval cek, guard harga, TP/cut-loss, dll).
+2. Masukkan nilai baru — tervalidasi (rentang & tipe).
+3. Pilih `0` untuk simpan ke `.env` → tanya restart container → otomatis `docker compose up -d`.
+
+Contoh:
+
+```
+ 5. TRADE_HARD_MAX_ASK = 0.70   Batas keras SEMUA mode: beli hanya jika ask <= ini
+   Pilih nomor: 5
+   nilai baru untuk TRADE_HARD_MAX_ASK [0.70] (rentang 0.1-0.95): 0.72
+   -> TRADE_HARD_MAX_ASK = 0.72
+```
+
+Alternatif manual: edit `.env` → `docker compose up -d` (nilai apa pun yang tidak ada di menu tetap bisa diatur langsung di file).
+
+---
+
 ## Troubleshooting
 
 | Gejala                     | Solusi                                                    |

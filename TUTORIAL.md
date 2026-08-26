@@ -78,6 +78,8 @@ python signal.py
 docker compose up -d --build
 ```
 
+> **Ubah pengaturan interaktif:** `python3 config.py` — menu pilih parameter → isi nilai → simpan ke `.env` → restart otomatis. Semua nilai tersimpan di `.env`.
+
 Lihat log:
 
 ```bash
