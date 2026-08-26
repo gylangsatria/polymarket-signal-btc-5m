@@ -370,6 +370,7 @@ def main():
             # Entry dinamis: dari awal window, selama tidak pegang posisi, belum kalah,
             # & masih ada waktu — cek tiap recheck. Beli jika prob bagus & harga cocok
             # (guard HARD/MIN/EV di trader.py) serta searah tren harga.
+            # Hanya aktif di mode AUTO-TRADE (AUTO_TRADE=true); signal-only = prediksi saja.
             if (not position and not stopped and 60 <= time_into_window <= 270
                     and time.time() - last_recheck >= RECHECK_INTERVAL):
                 last_recheck = time.time()
@@ -381,7 +382,7 @@ def main():
                     if (up and delta < 0) or (not up and delta > 0):
                         ts = datetime.now().strftime("%H:%M:%S")
                         print(f"[{ts}] SKIP entry {direction}: delta {delta:+.3f}% lawan arah — tunggu tren")
-                    else:
+                    elif trader.enabled():
                         do_trade(current_window, up, confidence)
 
             # Kelola posisi tiap recheck: TAKE-PROFIT jika ROI >= SELL_ROI_MIN,

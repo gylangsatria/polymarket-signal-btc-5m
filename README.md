@@ -97,6 +97,17 @@ AI_MODEL=coding-fast
 
 ---
 
+## Dua Mode Aplikasi (dari `.env`)
+
+| `AUTO_TRADE` | Mode | Perilaku |
+|---|---|---|
+| `false` | **SIGNAL-ONLY** | Bot hanya memantau & mencetak prediksi UP/DOWN + probabilitas — **tidak ada order** |
+| `true` | **AUTO-TRADING** | Bot memprediksi **dan** langsung eksekusi order di Polymarket CLOB (`TRADE_AMOUNT_USD` per window) |
+
+Ubah di `.env` lalu `docker compose up -d` (tanpa rebuild). Di log, judul bot menunjukkan mode aktif: `[AUTO-TRADE, $1.00/window]` = auto-trading, `[signal-only]` = sinyal saja.
+
+---
+
 ## Auto-Trade (CLOB Polymarket)
 
 Saat `AUTO_TRADE=true`, bot mengeksekusi **satu market order per window** di CLOB Polymarket lewat SDK resmi `polymarket-client`:
