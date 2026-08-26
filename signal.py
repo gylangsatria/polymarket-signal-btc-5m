@@ -272,7 +272,7 @@ def do_trade(current_window, up, prob=None):
             shares = float(res["shares"])
             spent = float(res.get("spent", 0) or 0)
             price = spent / shares if shares else 0.0  # harga beli rata-rata
-            position = (current_window, "UP" if up else "DOWN", res["token_id"], res["shares"], price)
+            position = (current_window, "UP" if up else "DOWN", res["token_id"], res["shares"], price, time.time())
         return True
     else:
         print(f"[{ts}] TRADE [SKIP]: {trader.SLUG_PREFIX}-{current_window} ({res.get('msg')})")
@@ -386,10 +386,11 @@ def main():
                         do_trade(current_window, up, confidence)
 
             # Kelola posisi tiap recheck: TAKE-PROFIT jika ROI >= SELL_ROI_MIN,
-            # CUT-LOSS jika bid <= SELL_CUT_LOSS (sisa nilai — jual daripada hangus 0).
+            # CUT-LOSS jika bid <= SELL_CUT_LOSS (sisa nilai — jual daripada hangus 0),
+            # tapi jangan cut-loss di menit-menit awal sejak entry (market masih volatile).
             if position and time.time() - last_recheck >= RECHECK_INTERVAL:
                 last_recheck = time.time()
-                w, direction, token_id, shares, entry = position
+                w, direction, token_id, shares, entry, ts_entry = position
                 bid = trader.get_best_bid(token_id)
                 ts = datetime.now().strftime("%H:%M:%S")
                 if bid is None:
@@ -402,10 +403,16 @@ def main():
                         if do_sell(w, token_id, shares, reason="TAKE-PROFIT"):
                             position = None
                     elif bid <= trader.SELL_CUT_LOSS:
-                        print(f"[{ts}] TARGET: bid {bid:.2f} <= {trader.SELL_CUT_LOSS:.2f} — CUT-LOSS")
-                        if do_sell(w, token_id, shares, reason="CUT-LOSS"):
-                            position = None
-                            stopped = True  # stop entry: 1 rugi per window cukup
+                        elapsed = time.time() - ts_entry
+                        if elapsed < trader.SELL_CUT_LOSS_MIN_ELAPSED:
+                            print(f"[{ts}] bid {bid:.2f} <= cut-loss, tapi baru {elapsed:.0f}s "
+                                  f"sejak entry (< {trader.SELL_CUT_LOSS_MIN_ELAPSED:.0f}s) — HOLD, "
+                                  f"jangan cut di titik rendah")
+                        else:
+                            print(f"[{ts}] TARGET: bid {bid:.2f} <= {trader.SELL_CUT_LOSS:.2f} — CUT-LOSS")
+                            if do_sell(w, token_id, shares, reason="CUT-LOSS"):
+                                position = None
+                                stopped = True  # stop entry: 1 rugi per window cukup
                     else:
                         print(f"[{ts}] POS: {direction} bid={bid:.2f} ROI {roi*100:.1f}% — hold "
                               f"(jual ROI >= {trader.SELL_ROI_MIN*100:.0f}% / cut-loss <= {trader.SELL_CUT_LOSS:.2f})")
@@ -420,7 +427,7 @@ def main():
                         pos_dir = position[1]
                         conf_dir = "UP" if p[1] else "DOWN"
                         if pos_dir != conf_dir:
-                            w, _dir, token_id, shares, _entry = position
+                            w, _dir, token_id, shares, _entry, _ts = position
                             ts = datetime.now().strftime("%H:%M:%S")
                             print(f"[{ts}] KONFIRMASI {conf_dir} berlawanan posisi {pos_dir} — CUT-LOSS")
                             if do_sell(w, token_id, shares, reason="CUT-LOSS"):

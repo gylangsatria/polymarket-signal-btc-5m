@@ -80,10 +80,18 @@ except ValueError:
     SELL_BID_MIN = 0.95
 
 # Cut-loss: jual jika best bid <= ambang ini (sisa nilai — daripada hangus 0 saat kalah).
+# Ambang rendah (0.25) + jeda awal (MIN_ELAPSED): window 5m sangat volatil di menit 1-2 —
+# harga bisa menyapu 0.30-an lalu kembali. Jangan jual di titik rendah sebelum sempat menang.
 try:
-    SELL_CUT_LOSS = float(os.getenv("SELL_CUT_LOSS", "0.40").strip() or 0.40)
+    SELL_CUT_LOSS = float(os.getenv("SELL_CUT_LOSS", "0.25").strip() or 0.25)
 except ValueError:
-    SELL_CUT_LOSS = 0.40
+    SELL_CUT_LOSS = 0.25
+
+# Jangan cut-loss di < N detik pertama sejak entry (market masih mengguncang).
+try:
+    SELL_CUT_LOSS_MIN_ELAPSED = float(os.getenv("SELL_CUT_LOSS_MIN_ELAPSED", "90").strip() or 90)
+except ValueError:
+    SELL_CUT_LOSS_MIN_ELAPSED = 90
 
 # Take-profit ROI: jual saat (bid - entry) / entry >= ambang ini (default 10%).
 try:
