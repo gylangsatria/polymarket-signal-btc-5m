@@ -113,14 +113,14 @@ Ubah di `.env` lalu `docker compose up -d` (tanpa rebuild). Di log, judul bot me
 Saat `AUTO_TRADE=true`, bot mengeksekusi market order **FOK** (fill-or-kill) di CLOB Polymarket lewat SDK resmi `polymarket-client`:
 
 - **Sinyal UP** → beli token **Up** (`btc-updown-5m-{window}`), **sinyal DOWN** → beli token **Down**.
-- **Entry dinamis**: mulai menit ke-1 (60s) sampai menit ke-4,5 (270s), bot mengecek **tiap 15 detik** — masuk begitu probabilitas & harga cocok, tanpa harus menunggu PREDIKSI. Tidak perlu order parsial menggantung.
+- **Entry dinamis**: mulai menit ke-1 (60s) sampai menit ke-4,5 (270s), bot mengecek tiap `RECHECK_INTERVAL` detik (default 5) — masuk begitu probabilitas & harga cocok, tanpa harus menunggu PREDIKSI. Tidak perlu order parsial menggantung.
 - **Guard harga 3 lapis** (semua cek best ask CLOB):
   - `TRADE_MAX_ASK` (0.6) — jalur normal: skip jika harga masuk di atas ambang.
   - `TRADE_HARD_MAX_ASK` (0.65) — **keras, berlaku SEMUA mode termasuk agresif**: beli hanya jika ask ≤ ini. Mencegah entry 0.70–0.99 yang EV negatif (menang cuma +3%, kalah −100%).
   - `TRADE_MIN_ASK` (0.35) — jangan beli token semurah ini (sisi yang pasar sudah yakin kalah).
 - **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas ≥ `TRADE_MIN_PROB` (75) → langsung FOK, **lewati** `TRADE_MAX_ASK` — tapi tetap tunduk `TRADE_HARD_MAX_ASK` & `TRADE_MIN_ASK`.
 - **Anti-melawan-pasar**: entry hanya jika arah sinyal **searah tren harga saat ini** (UP saat harga naik, DOWN saat turun); kalau melawan tren, tunggu.
-- **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap 15 detik.
+- **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap `RECHECK_INTERVAL` detik (default 5).
   - ROI ≥ `SELL_ROI_MIN` (10%) → jual FOK, kunci profit, lalu **berhenti di window itu** (tunggu market berikutnya). Set `STOP_AFTER_TAKE_PROFIT=false` untuk perilaku lama: bisa beli lagi / scalping dalam 1 window.
   - bid ≤ `SELL_CUT_LOSS` (0.25) **dan** sudah ≥ `SELL_CUT_LOSS_MIN_ELAPSED` (90s) sejak entry → jual FOK, ambil sisa nilai, lalu **berhenti entry di window itu** (1 rugi per window cukup).
   - Jeda 90s = window 5m volatil di menit 1-2; tanpa jeda bot sempat cut @0.36 padahal prediksi benar (harga sempat menyapu rendah lalu kembali).
@@ -179,6 +179,7 @@ TRADE_HARD_MAX_ASK=0.65           # batas keras SEMUA mode (termasuk agresif): b
 TRADE_MIN_ASK=0.35                # jangan beli token semurah ini (sisi yang pasar sudah yakin kalah)
 TRADE_AGGRESSIVE=true             # prob >= TRADE_MIN_PROB -> langsung beli (lewati TRADE_MAX_ASK)
 TRADE_MIN_PROB=75                 # ambang probabilitas mode agresif, dalam persen
+RECHECK_INTERVAL=5                # detik: interval cek ulang harga & posisi (entry/TP/cut-loss); lebih kecil = lebih responsif, tapi lebih banyak hit ke Binance/CLOB
 SELL_BID_MIN=0.95                 # take-profit: jual jika best bid >= ambang
 SELL_ROI_MIN=0.10                 # take-profit ROI: jual saat (bid - entry)/entry >= ini (10%)
 SELL_CUT_LOSS=0.25                # cut-loss: jual jika best bid <= ambang (jual hanya saat benar-benar mati)

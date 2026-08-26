@@ -33,7 +33,12 @@ SPARK = "▁▂▃▄▅▆▇█"
 TRIGGER_URGENT_MIN_DELTA = 0.15
 TRIGGER_FIRST_SEC = 120   # T-180s
 TRIGGER_CONFIRM_SEC = 240 # T-60s (1 menit sebelum tutup)
-RECHECK_INTERVAL = 15     # recheck probabilitas (untuk trigger beli) per N detik
+# Recheck interval (detik) untuk entry dinamis & kelola posisi (TP/cut-loss).
+# Default 5 = lebih responsif. Turunkan hati-hati: tiap recheck fetch Binance+CLOB (rate limit).
+try:
+    RECHECK_INTERVAL = float(os.getenv("RECHECK_INTERVAL", "5").strip() or 5)
+except ValueError:
+    RECHECK_INTERVAL = 5
 # Anti-whipsaw: KONFIRMASI hanya membalik arah jika delta berlawanan lebih dari ini (%).
 # Pembalikan kecil (harga nyaris di open) sering noise — tahan arah PREDIKSI (HOLD).
 FLIP_MIN_DELTA = 0.03
