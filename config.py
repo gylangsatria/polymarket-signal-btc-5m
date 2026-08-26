@@ -24,6 +24,7 @@ FIELDS = [
     ("TRADE_MIN_ASK",           "Jangan beli token di bawah harga ini (sisi yang pasar yakin kalah)", "float", 0.05, 0.5),
     ("TRADE_AGGRESSIVE",        "Agresif: prob >= TRADE_MIN_PROB langsung FOK (lewati TRADE_MAX_ASK)", "bool"),
     ("TRADE_MIN_PROB",          "Ambang probabilitas mode agresif (%)", "int", 50, 100),
+    ("TRADE_MIN_PROB_ENTRY",    "Lantai keyakinan MUTLAK semua mode: jangan entry jika prob di bawah ini (%)", "int", 40, 90),
     ("SELL_ROI_MIN",            "Take-profit ROI minimal (0.10 = +10%)", "float", 0.0, 1.0),
     ("SELL_CUT_LOSS",           "Cut-loss: jual jika best bid <= ambang ini", "float", 0.0, 0.6),
     ("SELL_CUT_LOSS_MIN_ELAPSED", "Jangan cut-loss di < N detik pertama sejak entry", "float", 0, 240),

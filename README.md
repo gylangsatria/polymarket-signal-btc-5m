@@ -115,10 +115,11 @@ Saat `AUTO_TRADE=true`, bot mengeksekusi market order **FOK** (fill-or-kill) di 
 - **Sinyal UP** → beli token **Up** (`btc-updown-5m-{window}`), **sinyal DOWN** → beli token **Down**.
 - **Entry dinamis**: mulai menit ke-1 (60s) sampai menit ke-4,5 (270s), bot mengecek tiap `RECHECK_INTERVAL` detik (default 5) — masuk begitu probabilitas & harga cocok, tanpa harus menunggu PREDIKSI. Tidak perlu order parsial menggantung.
 - **Guard harga adaptif (EV≥0, semua mode)**:
+  - `TRADE_MIN_PROB_ENTRY` (50) — **lantai keyakinan mutlak**: prob < 50% tidak pernah masuk, jalur mana pun (model ragu = sering salah arah).
   - `TRADE_HARD_MAX_ASK` (0.85) — ceiling mutlak: tidak pernah bayar lebih dari 85¢.
   - **Guard EV**: tidak pernah bayar lebih dari keyakinan model — `ask ≤ prob%` (EV ≥ 0). Harga 0.70–0.85 boleh dibeli **hanya jika model yakin ≥ itu**; harga 0.85–0.99 dengan prob 90% = EV +5% (layak), harga 0.95 dengan prob 80% = EV −15% (ditolak).
   - `TRADE_MIN_ASK` (0.35) — jangan beli token semurah ini (sisi yang pasar sudah yakin kalah).
-- **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas ≥ `TRADE_MIN_PROB` (75) → langsung FOK, **lewati** `TRADE_MAX_ASK` — tapi **tetap tunduk** ceiling `TRADE_HARD_MAX_ASK`, guard EV (`ask ≤ prob%`), & `TRADE_MIN_ASK`.
+- **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas ≥ `TRADE_MIN_PROB` (75) → langsung FOK, **lewati** `TRADE_MAX_ASK` — tapi **tetap tunduk** lantai `TRADE_MIN_PROB_ENTRY`, ceiling `TRADE_HARD_MAX_ASK`, guard EV (`ask ≤ prob%`), & `TRADE_MIN_ASK`.
 - **Anti-melawan-pasar**: entry hanya jika arah sinyal **searah tren harga saat ini** (UP saat harga naik, DOWN saat turun); kalau melawan tren, tunggu.
 - **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap `RECHECK_INTERVAL` detik (default 5).
   - ROI ≥ `SELL_ROI_MIN` (10%) → jual FOK, kunci profit, lalu **berhenti di window itu** (tunggu market berikutnya). Set `STOP_AFTER_TAKE_PROFIT=false` untuk perilaku lama: bisa beli lagi / scalping dalam 1 window.
@@ -179,6 +180,7 @@ TRADE_HARD_MAX_ASK=0.85           # ceiling mutlak: tidak pernah bayar > 85ct (g
 TRADE_MIN_ASK=0.35                # jangan beli token semurah ini (sisi yang pasar sudah yakin kalah)
 TRADE_AGGRESSIVE=true             # prob >= TRADE_MIN_PROB -> langsung beli (lewati TRADE_MAX_ASK)
 TRADE_MIN_PROB=75                 # ambang probabilitas mode agresif, dalam persen
+TRADE_MIN_PROB_ENTRY=50           # lantai keyakinan MUTLAK semua mode: jangan entry jika prob < ini
 RECHECK_INTERVAL=5                # detik: interval cek ulang harga & posisi (entry/TP/cut-loss); lebih kecil = lebih responsif, tapi lebih banyak hit ke Binance/CLOB
 SELL_BID_MIN=0.95                 # take-profit: jual jika best bid >= ambang
 SELL_ROI_MIN=0.10                 # take-profit ROI: jual saat (bid - entry)/entry >= ini (10%)
@@ -256,7 +258,7 @@ Alternatif manual: edit `.env` → `docker compose up -d` (nilai apa pun yang ti
 ## FAQ
 
 ### 1. Kenapa bot jarang trade / sering `TRADE [SKIP]`?
-Guard EV bekerja. Log `ask 0.82 > prob 25% (EV negatif)` berarti harga 82¢ tapi keyakinan model cuma 25% — bayar 0.82 untuk menang cuma +18% tapi kalah −100% = rugi terjamin. Bot hanya masuk jika `ask ≤ prob%` (EV ≥ 0) dan `ask ≤ 0.85`. Harga 0.8–0.9 **boleh** dibeli saat model yakin (prob 85–90%) — itu justru EV positif. Lebih jarang trade tapi tiap trade punya peluang untung — disengaja.
+Guard EV bekerja. Log `ask 0.82 > prob 25% (EV negatif)` berarti harga 82¢ tapi keyakinan model cuma 25% — bayar 0.82 untuk menang cuma +18% tapi kalah −100% = rugi terjamin. Bot hanya masuk jika **prob ≥ `TRADE_MIN_PROB_ENTRY` (50)**, `ask ≤ prob%` (EV ≥ 0) dan `ask ≤ 0.85`. Harga 0.8–0.9 **boleh** dibeli saat model yakin (prob 85–90%) — itu justru EV positif. Lebih jarang trade tapi tiap trade punya peluang untung — disengaja.
 
 ### 2. Kenapa `TRADE [SKIP]: ask 0.62 > prob 50% (EV negatif)`?
 Guard EV jalur normal: harga 0.62 lebih mahal dari keyakinan model (50%) — membeli itu rugi terjamin secara statistik. Skip benar.

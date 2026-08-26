@@ -77,6 +77,13 @@ try:
 except ValueError:
     MIN_PROB = 60
 
+# Lantai keyakinan MUTLAK (semua mode): jangan pernah entry jika prob < ini.
+# Model dengan keyakinan < 50% (atau lebih tinggi) tidak reliable — sering salah arah.
+try:
+    MIN_PROB_ENTRY = float(os.getenv("TRADE_MIN_PROB_ENTRY", "50").strip() or 50)
+except ValueError:
+    MIN_PROB_ENTRY = 50
+
 # Take-profit: jual otomatis jika best bid token >= ambang ini.
 try:
     SELL_BID_MIN = float(os.getenv("SELL_BID_MIN", "0.95").strip() or 0.95)
@@ -190,6 +197,9 @@ def trade(window_ts, up, prob=None):
         return {"ok": False, "msg": "AUTO_TRADE off"}
     if AMOUNT_USD <= 0:
         return {"ok": False, "msg": f"TRADE_AMOUNT_USD={AMOUNT_USD} tidak valid"}
+    # Lantai keyakinan mutlak: jangan entry saat model ragu (prob rendah sering salah arah).
+    if prob is not None and prob < MIN_PROB_ENTRY:
+        return {"ok": False, "msg": f"{slug} skip: prob {prob:.0f}% < TRADE_MIN_PROB_ENTRY={MIN_PROB_ENTRY:.0f}% (keyakinan model terlalu rendah)"}
 
     try:
         # DRY-RUN: lookup market publik saja — tidak butuh auth, aman untuk uji coba.
