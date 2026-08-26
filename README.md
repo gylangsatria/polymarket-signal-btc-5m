@@ -106,7 +106,7 @@ Saat `AUTO_TRADE=true`, bot mengeksekusi **satu market order per window** di CLO
 - Order memakai `FOK` (fill-or-kill): modal yang tidak terisi penuh di book dibatalkan, tidak ada posisi parsial yang menggantung.
 - **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas prediksi ≥ `TRADE_MIN_PROB` (default 60, persen) → langsung FOK, **lewati** guard `TRADE_MAX_ASK` (baik arah UP maupun DOWN). Guard harga hanya aktif saat probabilitas di bawah ambang.
 - **Recheck**: selama belum ada order dan belum KONFIRMASI, bot mengecek ulang probabilitas tiap 15 detik — begitu naik ke ≥ `TRADE_MIN_PROB`, langsung eksekusi tanpa menunggu menit terakhir.
-- **Take-profit** (`SELL_BID_MIN=0.95`): setelah posisi terbentuk, bot cek best bid tiap 15 detik — jika bid ≥ ambang, jual FOK (`side="SELL"`) dan kunci profit sebelum close. Jika tidak pernah mencapai ambang, posisi dibiarkan → redeem otomatis saat menang.
+- **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap 15 detik. Jika bid ≥ `SELL_BID_MIN` (0.95) → jual FOK, kunci profit sebelum close. Jika bid ≤ `SELL_CUT_LOSS` (0.40) → jual FOK, ambil sisa nilai alih-alih hangus 0 saat arah melawan. Saat KONFIRMASI berlawanan arah dengan posisi → cut-loss segera, tidak menunggu harga anjlok.
 - `TRADE_DRY_RUN=true` → hanya mencetak rencana order (lookup market + token) tanpa eksekusi. Aman untuk uji coba sebelum live.
 
 **Dana tidak pernah di-withdraw.** Semua USDC dan token hasil beli tetap sebagai collateral di dalam Polymarket (default CLOB). Untuk mengecek posisi/saldo: buka polymarket.com atau gunakan `client.list_positions(...)` dari SDK.
@@ -157,7 +157,9 @@ TRADE_ON_URGENT=false             # true = eksekusi juga sinyal URGENT
 TRADE_DRY_RUN=true                # true = cetak rencana order, tanpa eksekusi
 TRADE_MAX_ASK=0.9                 # skip order jika best ask > ambang (harga masuk maksimal)
 TRADE_AGGRESSIVE=true             # prob >= TRADE_MIN_PROB -> langsung beli (lewati TRADE_MAX_ASK)
-TRADE_MIN_PROB=60                 # ambang probabilitas mode agresif, dalam persen
+TRADE_MIN_PROB=75                 # ambang probabilitas mode agresif, dalam persen
+SELL_BID_MIN=0.95                 # take-profit: jual jika best bid >= ambang
+SELL_CUT_LOSS=0.40                # cut-loss: jual jika best bid <= ambang (sisa nilai)
 ```
 
 > `.env` di-ignore oleh git. Jangan pernah commit isinya — mengandung secret.

@@ -65,6 +65,12 @@ try:
 except ValueError:
     SELL_BID_MIN = 0.95
 
+# Cut-loss: jual jika best bid <= ambang ini (sisa nilai — daripada hangus 0 saat kalah).
+try:
+    SELL_CUT_LOSS = float(os.getenv("SELL_CUT_LOSS", "0.40").strip() or 0.40)
+except ValueError:
+    SELL_CUT_LOSS = 0.40
+
 # Prefix slug market Polymarket: {asset}-updown-{duration}-{window_start_ts}
 # (diverifikasi dari gamma-api: "btc-updown-5m-1787709300" = window 01:55-02:00 UTC)
 SLUG_PREFIX = "btc-updown-5m"
