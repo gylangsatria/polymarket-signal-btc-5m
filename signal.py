@@ -52,7 +52,8 @@ def load_stats():
 def save_stats(stats):
     try:
         with open(STATS_FILE, "w") as f:
-            json.dump(stats, f)
+            # default: tangani sisa nilai numpy (bool_/float64) jika lolos dari konversi eksplisit
+            json.dump(stats, f, default=lambda o: o.item() if hasattr(o, "item") else str(o))
     except Exception as e:
         print(f"[stats] gagal simpan: {e}")
 
@@ -267,8 +268,8 @@ def main():
                     if not o.empty and not c.empty:
                         open_p = o["open"].iloc[0]
                         final_p = c["close"].iloc[0]
-                        win = (up == (final_p > open_p))
-                        stats.append({"window": w, "up": up, "win": win, "delta": d_abs, "bucket": bucket(d_abs)})
+                        win = bool(up == (final_p > open_p))
+                        stats.append({"window": int(w), "up": bool(up), "win": win, "delta": float(d_abs), "bucket": bucket(d_abs)})
                         save_stats(stats)
                         total = len(stats)
                         wins = sum(s["win"] for s in stats)
