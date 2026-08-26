@@ -20,7 +20,7 @@ FIELDS = [
     ("TRADE_AMOUNT_USD",        "Nominal per window (USD) — jangan lebih besar dari saldo deposit", "float", 0.5, 50),
     ("RECHECK_INTERVAL",        "Detik: interval cek harga & posisi (entry/TP/cut-loss)", "float", 2, 60),
     ("TRADE_MAX_ASK",           "Harga masuk maksimal jalur normal", "float", 0.1, 0.95),
-    ("TRADE_HARD_MAX_ASK",      "Batas keras SEMUA mode (agresif tetap kena): beli hanya jika ask <= ini", "float", 0.1, 0.95),
+    ("TRADE_HARD_MAX_ASK",      "Ceiling mutlak: tidak pernah bayar > nilai ini (guard EV menyaring harga >= prob%)", "float", 0.1, 0.95),
     ("TRADE_MIN_ASK",           "Jangan beli token di bawah harga ini (sisi yang pasar yakin kalah)", "float", 0.05, 0.5),
     ("TRADE_AGGRESSIVE",        "Agresif: prob >= TRADE_MIN_PROB langsung FOK (lewati TRADE_MAX_ASK)", "bool"),
     ("TRADE_MIN_PROB",          "Ambang probabilitas mode agresif (%)", "int", 50, 100),

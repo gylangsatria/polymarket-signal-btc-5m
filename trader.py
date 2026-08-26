@@ -56,12 +56,13 @@ try:
 except ValueError:
     MAX_ASK_PRICE = 0.6
 
-# Harga masuk HARD — berlaku SEMUA mode (termasuk agresif): skip jika best ask > ambang.
-# Mencegah beli 0.75+ yang EV negatif: menang cuma +25-30%, kalah -100%.
+# Harga masuk HARD — ceiling mutlak SEMUA mode (termasuk agresif): skip jika best ask > ambang.
+# Dilengkapi guard EV adaptif (bayar <= prob, di bawah): harga 0.8-0.9 aman dibeli
+# hanya jika keyakinan model >= 80-90%. Default 0.85 = tidak pernah bayar > 85ct.
 try:
-    HARD_MAX_ASK = float(os.getenv("TRADE_HARD_MAX_ASK", "0.70").strip() or 0.70)
+    HARD_MAX_ASK = float(os.getenv("TRADE_HARD_MAX_ASK", "0.85").strip() or 0.85)
 except ValueError:
-    HARD_MAX_ASK = 0.70
+    HARD_MAX_ASK = 0.85
 
 # Harga masuk MINIMUM: skip jika best ask < ambang. Token semurah ini = sisi yang
 # pasar sudah yakin kalah — membeli di situ melawan konsensus pasar (hampir pasti hangus).
@@ -234,7 +235,7 @@ def trade(window_ts, up, prob=None):
         if not token_id:
             return {"ok": False, "msg": f"outcome '{side_txt}' tidak punya token id ({slug})"}
 
-        # Batas HARD: semua mode (termasuk agresif) skip jika harga masuk terlalu mahal.
+        # Batas HARD: ceiling mutlak — semua mode (termasuk agresif) skip jika harga masuk terlalu mahal.
         ask = get_best_ask(token_id)
         if ask is not None and ask > HARD_MAX_ASK:
             return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} > TRADE_HARD_MAX_ASK={HARD_MAX_ASK} (harga terlalu mahal — EV negatif)"}
@@ -242,18 +243,19 @@ def trade(window_ts, up, prob=None):
         if ask is not None and ask < MIN_ASK_PRICE:
             return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} < TRADE_MIN_ASK={MIN_ASK_PRICE} (sisi hampir pasti kalah)"}
 
+        # Guard EV adaptif — berlaku SEMUA mode (termasuk agresif): jangan pernah bayar
+        # lebih dari keyakinan model. EV = prob% - ask; bayar @P butuh prob >= P supaya EV >= 0.
+        # Ini yang membuat harga 0.7-0.85 tetap bisa dibeli saat model yakin (prob >= ask%),
+        # tanpa pernah beli EV negatif.
+        if prob is not None and ask is not None and ask > prob / 100:
+            return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} > prob {prob:.0f}% (EV negatif)"}
+
         if not aggressive:
             reason = check_entry(token_id)
             if reason:
                 return {"ok": False, "msg": f"{slug} skip: {reason}"}
-            # Guard EV: beli @P butuh prob >= P*100 supaya EV >= 0.
-            # (Mode agresif percaya model -> bypass, di atas.)
-            if prob is not None:
-                ask = get_best_ask(token_id)
-                if ask is not None and ask > prob / 100:
-                    return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} > prob {prob:.0f}% (EV negatif)"}
         else:
-            print(f"[{ts}] agresif: prob={prob:.1f}% >= TRADE_MIN_PROB={MIN_PROB} — langsung FOK tanpa guard harga")
+            print(f"[{ts}] agresif: prob={prob:.1f}% >= TRADE_MIN_PROB={MIN_PROB} — FOK (EV guard aktif: bayar <= prob)")
 
         resp = client.place_market_order(
             token_id=token_id,
