@@ -27,9 +27,9 @@ AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini").strip()
 
 SPARK = "▁▂▃▄▅▆▇█"
 
-# Dua sinyal per window: menit ke-2 (prediksi awal) + 1 menit 50 detik terakhir (konfirmasi).
+# Dua sinyal per window: menit ke-2 (prediksi awal) + 1 menit terakhir (konfirmasi).
 TRIGGER_FIRST_SEC = 120   # T-180s
-TRIGGER_CONFIRM_SEC = 190 # T-110s (1 menit 50 detik sebelum tutup)
+TRIGGER_CONFIRM_SEC = 240 # T-60s (1 menit sebelum tutup)
 # Anti-whipsaw: KONFIRMASI hanya membalik arah jika delta berlawanan lebih dari ini (%).
 # Pembalikan kecil (harga nyaris di open) sering noise — tahan arah PREDIKSI (HOLD).
 FLIP_MIN_DELTA = 0.03
@@ -304,7 +304,7 @@ def main():
                     window_up = p[1]
                 first_done = True
 
-            # Konfirmasi T-110s sebelum tutup (1m50s terakhir; menimpa pending — keputusan final)
+            # Konfirmasi T-60s sebelum tutup (1 menit terakhir; menimpa pending — keputusan final)
             if time_into_window >= TRIGGER_CONFIRM_SEC and not second_done:
                 p = emit_signal(current_window, stats, "KONFIRMASI", prev_up=window_up)
                 if p:

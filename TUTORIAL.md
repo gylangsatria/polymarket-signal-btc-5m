@@ -8,7 +8,7 @@ Panduan lengkap setup, konfigurasi AI, dan menjalankan bot sinyal BTC Up/Down (m
 
 1. Setiap window 5 menit Polymarket membuka market `btc-5m-{window_ts}`.
 2. Bot membaca kline 1-menit BTCUSDT dari Binance.
-3. Bot memunculkan **2 sinyal**: **PREDIKSI** di menit ke-2 window (T-180s) dan **KONFIRMASI** di T-110s sebelum tutup (1 menit 50 detik terakhir):
+3. Bot memunculkan **2 sinyal**: **PREDIKSI** di menit ke-2 window (T-180s) dan **KONFIRMASI** di T-60s sebelum tutup (1 menit terakhir):
    - Skor teknikal: **window delta** (dominant) + **EMA 9**.
    - Jika skor lemah (`|score| <= 4`), bot bertanya ke **AI** (9router/coding-fast) sebagai tiebreaker.
 4. Mencetak arah + confidence + sparkline chart ke terminal.
@@ -132,7 +132,7 @@ else:          score -= 1
 
 ### Anti-whipsaw
 
-KONFIRMASI (T-110s, 1m50s terakhir) **tidak langsung membalik arah** PREDIKSI: jika arah baru berlawanan tapi `|delta| < 0.03%`, arah ditahan (`[HOLD]`, confidence ≤ 40%). Harga yang nyaris menyentuh open bisa bolak-balik — flip hanya jika pembalikan tegas (≥ 0.03%).
+KONFIRMASI (T-60s, 1 menit terakhir) **tidak langsung membalik arah** PREDIKSI: jika arah baru berlawanan tapi `|delta| < 0.03%`, arah ditahan (`[HOLD]`, confidence ≤ 40%). Harga yang nyaris menyentuh open bisa bolak-balik — flip hanya jika pembalikan tegas (≥ 0.03%).
 
 ---
 
@@ -154,7 +154,7 @@ KONFIRMASI (T-110s, 1m50s terakhir) **tidak langsung membalik arah** PREDIKSI: j
 | `[AI] retry` di log        | Model reasoning timeout/kehabisan token — bot retry sekali lalu fallback.    |
 | `[AI] skipped` terus       | Cek `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` di `.env`. Atau matikan AI dengan mengosongkan `AI_API_KEY`. |
 | `ModuleNotFoundError: zoneinfo` | Pakai Python 3.9+ atau `pip install tzdata`.                                  |
-| Sinyal tidak pernah muncul  | Loop menunggu `time_into_window >= 120` (PREDIKSI) / `>= 190` (KONFIRMASI, T-110s). Cek log di menit ke-2 dan 1m50s terakhir. |
+| Sinyal tidak pernah muncul  | Loop menunggu `time_into_window >= 120` (PREDIKSI) / `>= 240` (KONFIRMASI, T-60s). Cek log di menit ke-2 dan 1 menit terakhir. |
 
 ---
 
