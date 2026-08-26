@@ -14,7 +14,7 @@ close_time    = window_ts + 300            # window tutup 5 menit kemudian
 market slug   = btc-5m-{window_ts}
 ```
 
-Bot memunculkan **2 sinyal per window**: **PREDIKSI** di menit ke-2 (T-180s) lalu **KONFIRMASI** di T-30s sebelum tutup. Setelah tutup, bot **memverifikasi hasil** — win rate empiris dipakai sebagai probabilitas (kalibrasi per bucket delta).
+Bot memunculkan **2 sinyal per window**: **PREDIKSI** di menit ke-2 (T-180s) lalu **KONFIRMASI** di T-110s (1 menit 50 detik terakhir) sebelum tutup. Setelah tutup, bot **memverifikasi hasil** — win rate empiris dipakai sebagai probabilitas (kalibrasi per bucket delta).
 
 ---
 
@@ -55,7 +55,7 @@ delta = (current_price - window_open) / window_open * 100
 
 Total skor > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|skor|/8 × 100%`, **dibatasi maks 80%** — prediksi 1 menit tidak pernah layak klaim 100%.
 
-**Anti-whipsaw (HOLD):** jika KONFIRMASI (T-30s) berubah arah tapi `|delta| < 0.03%` (harga nyaris di open), arah **ditahan** mengikuti PREDIKSI dan confidence dibatasi 40%. Pembalikan tipis sering noise yang bisa balik lagi; flip hanya jika delta berlawanan **tegas** (≥ 0.03%).
+**Anti-whipsaw (HOLD):** jika KONFIRMASI (T-110s) berubah arah tapi `|delta| < 0.03%` (harga nyaris di open), arah **ditahan** mengikuti PREDIKSI dan confidence dibatasi 40%. Pembalikan tipis sering noise yang bisa balik lagi; flip hanya jika delta berlawanan **tegas** (≥ 0.03%).
 
 ---
 
@@ -72,8 +72,8 @@ Total skor > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|skor|/8 ×
 [08:00:12] VERIFY: btc-5m-1787702100 BENAR (close 78510.00 vs open 78496.00) | win rate 61.1% (11/18)
 ```
 
-- Probabilitas dikalibrasi dari **hasil sinyal KONFIRMASI** (T-30s) — keputusan final.
-- `PREDIKSI` (T-180s) untuk aksi lebih awal; `KONFIRMASI` (T-30s) untuk memastikan.
+- Probabilitas dikalibrasi dari **hasil sinyal KONFIRMASI** (T-110s) — keputusan final.
+- `PREDIKSI` (T-180s) untuk aksi lebih awal; `KONFIRMASI` (T-110s, 1m50s terakhir) untuk memastikan.
 
 ---
 
@@ -166,6 +166,6 @@ docker compose up -d --build
 ## Pelajaran Kunci
 
 1. **Window delta adalah raja.** TA jangka pendek (EMA, RSI) sangat bising di skala 5 menit. Delta vs harga buka window adalah jawaban langsung atas pertanyaan market.
-2. **Timing masuk itu segalanya.** PREDIKSI di T-180s (margin besar, arah belum terkunci) → KONFIRMASI di T-30s (arah praktis terkunci). Bertindak pakai angka probabilitas empiris, bukan sekadar arah.
+2. **Timing masuk itu segalanya.** PREDIKSI di T-180s (margin besar, arah belum terkunci) → KONFIRMASI di T-110s (1m50s terakhir, arah lebih terkunci). Bertindak pakai angka probabilitas empiris, bukan sekadar arah.
 3. **AI hanya pelengkap.** Jangan biarkan AI membalik sinyal saat delta sudah tegas — itu justru menambah noise.
 4. **Rate limit Binance itu nyata.** Bot me-retry otomatis; kalau sering gagal, kurangi frekuensi fetch.
