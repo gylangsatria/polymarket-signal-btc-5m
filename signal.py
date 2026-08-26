@@ -269,7 +269,10 @@ def do_trade(current_window, up, prob=None):
               + (f" orderID={extra[:18]}" if extra else ""))
         # Simpan posisi untuk take-profit/cut-loss (hanya order nyata — DRY-RUN tanpa shares)
         if res.get("token_id") and res.get("shares"):
-            position = (current_window, "UP" if up else "DOWN", res["token_id"], res["shares"])
+            shares = float(res["shares"])
+            spent = float(res.get("spent", 0) or 0)
+            price = spent / shares if shares else 0.0  # harga beli rata-rata
+            position = (current_window, "UP" if up else "DOWN", res["token_id"], res["shares"], price)
         return True
     else:
         print(f"[{ts}] TRADE [SKIP]: {trader.SLUG_PREFIX}-{current_window} ({res.get('msg')})")
@@ -318,7 +321,6 @@ def main():
             if current_window != last_window:
                 last_window = current_window
                 urgent_done = first_done = second_done = False
-                traded = False  # maksimal 1 order per window
                 window_up = None  # arah PREDIKSI window ini (acuan anti-whipsaw)
                 last_recheck = 0.0
                 position = None  # window baru — posisi lama selesai (jual/hangus/redeem)
@@ -353,9 +355,6 @@ def main():
                     if p:
                         pending = p
                         window_up = p[1]
-                        # Entry cepat hanya jika diaktifkan (TRADE_ON_URGENT=true)
-                        if trader.enabled() and trader.trade_on_urgent() and not traded:
-                            traded = do_trade(current_window, p[1], p[3])
                     urgent_done = True
 
             # Sinyal awal di menit ke-2 (T-180s)
@@ -365,65 +364,52 @@ def main():
                 if p:
                     pending = p
                     window_up = p[1]
-                    # Eksekusi di menit ke-2 (harga masih wajar); skip otomatis jika ask > ambang.
-                    # KONFIRMASI T-60s di bawah jadi fallback bila belum ada order.
-                    if trader.enabled() and not traded:
-                        traded = do_trade(current_window, p[1], p[3])
                 first_done = True
 
-            # Recheck tiap 15 detik: jika belum trade & probabilitas naik >= ambang
-            # agresif, langsung eksekusi — tidak menunggu KONFIRMASI.
-            if (first_done and not traded and not second_done
+            # Entry dinamis: dari awal window, selama tidak pegang posisi & masih ada waktu,
+            # cek tiap recheck — beli jika prob bagus & harga cocok (guard HARD/EV di trader.py).
+            if (not position and 60 <= time_into_window <= 270
                     and time.time() - last_recheck >= RECHECK_INTERVAL):
                 last_recheck = time.time()
                 direction, confidence, _, _, _, _, delta = get_signal(allow_ai=False)
                 if direction:
-                    d_abs = abs(delta)
-                    b = bucket(d_abs)
-                    rows = [s for s in stats if s["bucket"] == b]
-                    prob = (sum(s["win"] for s in rows) / len(rows) * 100
-                            if len(rows) >= 15 else confidence)
-                    if prob >= trader.MIN_PROB:
-                        up = direction == "UP"
-                        ts = datetime.now().strftime("%H:%M:%S")
-                        print(f"[{ts}] RECHECK: {'UP' if up else 'DOWN'} prob {prob:.1f}% >= {trader.MIN_PROB:.0f}% — eksekusi")
-                        traded = do_trade(current_window, up, prob)
+                    do_trade(current_window, direction == "UP", confidence)
 
-            # Kelola posisi tiap recheck: TAKE-PROFIT jika bid >= SELL_BID_MIN,
+            # Kelola posisi tiap recheck: TAKE-PROFIT jika ROI >= SELL_ROI_MIN,
             # CUT-LOSS jika bid <= SELL_CUT_LOSS (sisa nilai — jual daripada hangus 0).
             if position and time.time() - last_recheck >= RECHECK_INTERVAL:
                 last_recheck = time.time()
-                w, direction, token_id, shares = position
+                w, direction, token_id, shares, entry = position
                 bid = trader.get_best_bid(token_id)
                 ts = datetime.now().strftime("%H:%M:%S")
                 if bid is None:
                     pass  # tidak ada pembeli — tunggu recheck berikutnya
-                elif bid >= trader.SELL_BID_MIN:
-                    print(f"[{ts}] TARGET: bid {bid:.2f} >= {trader.SELL_BID_MIN:.2f} — TAKE-PROFIT")
-                    if do_sell(w, token_id, shares, reason="TAKE-PROFIT"):
-                        position = None
-                elif bid <= trader.SELL_CUT_LOSS:
-                    print(f"[{ts}] TARGET: bid {bid:.2f} <= {trader.SELL_CUT_LOSS:.2f} — CUT-LOSS")
-                    if do_sell(w, token_id, shares, reason="CUT-LOSS"):
-                        position = None
                 else:
-                    print(f"[{ts}] POS: {direction} bid={bid:.2f} — hold "
-                          f"(sell jika >= {trader.SELL_BID_MIN} atau <= {trader.SELL_CUT_LOSS})")
+                    roi = (bid - entry) / entry if entry else 0.0
+                    if roi >= trader.SELL_ROI_MIN:
+                        print(f"[{ts}] TARGET: bid {bid:.2f} ROI {roi*100:.1f}% >= "
+                              f"{trader.SELL_ROI_MIN*100:.0f}% — TAKE-PROFIT")
+                        if do_sell(w, token_id, shares, reason="TAKE-PROFIT"):
+                            position = None
+                    elif bid <= trader.SELL_CUT_LOSS:
+                        print(f"[{ts}] TARGET: bid {bid:.2f} <= {trader.SELL_CUT_LOSS:.2f} — CUT-LOSS")
+                        if do_sell(w, token_id, shares, reason="CUT-LOSS"):
+                            position = None
+                    else:
+                        print(f"[{ts}] POS: {direction} bid={bid:.2f} ROI {roi*100:.1f}% — hold "
+                              f"(jual ROI >= {trader.SELL_ROI_MIN*100:.0f}% / cut-loss <= {trader.SELL_CUT_LOSS:.2f})")
 
             # Konfirmasi T-60s sebelum tutup (1 menit terakhir; menimpa pending — keputusan final)
             if time_into_window >= TRIGGER_CONFIRM_SEC and not second_done:
                 p = emit_signal(current_window, stats, "KONFIRMASI", prev_up=window_up)
                 if p:
                     pending = p
-                    # Eksekusi auto-trade: sekali per window, arah KONFIRMASI (final)
-                    if trader.enabled() and not traded:
-                        traded = do_trade(current_window, p[1], p[3])
                     # Arah berbalik vs posisi yang sudah dipegang → cut-loss sebelum hangus total
                     if position:
                         pos_dir = position[1]
                         conf_dir = "UP" if p[1] else "DOWN"
                         if pos_dir != conf_dir:
-                            w, _dir, token_id, shares = position
+                            w, _dir, token_id, shares, _entry = position
                             ts = datetime.now().strftime("%H:%M:%S")
                             print(f"[{ts}] KONFIRMASI {conf_dir} berlawanan posisi {pos_dir} — CUT-LOSS")
                             if do_sell(w, token_id, shares, reason="CUT-LOSS"):

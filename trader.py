@@ -78,6 +78,12 @@ try:
 except ValueError:
     SELL_CUT_LOSS = 0.40
 
+# Take-profit ROI: jual saat (bid - entry) / entry >= ambang ini (default 10%).
+try:
+    SELL_ROI_MIN = float(os.getenv("SELL_ROI_MIN", "0.10").strip() or 0.10)
+except ValueError:
+    SELL_ROI_MIN = 0.10
+
 # Prefix slug market Polymarket: {asset}-updown-{duration}-{window_start_ts}
 # (diverifikasi dari gamma-api: "btc-updown-5m-1787709300" = window 01:55-02:00 UTC)
 SLUG_PREFIX = "btc-updown-5m"

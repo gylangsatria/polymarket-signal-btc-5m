@@ -106,7 +106,7 @@ Saat `AUTO_TRADE=true`, bot mengeksekusi **satu market order per window** di CLO
 - Order memakai `FOK` (fill-or-kill): modal yang tidak terisi penuh di book dibatalkan, tidak ada posisi parsial yang menggantung.
 - **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas prediksi ≥ `TRADE_MIN_PROB` (default 60, persen) → langsung FOK, **lewati** guard `TRADE_MAX_ASK` (baik arah UP maupun DOWN). Guard harga hanya aktif saat probabilitas di bawah ambang.
 - **Recheck**: selama belum ada order dan belum KONFIRMASI, bot mengecek ulang probabilitas tiap 15 detik — begitu naik ke ≥ `TRADE_MIN_PROB`, langsung eksekusi tanpa menunggu menit terakhir.
-- **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap 15 detik. Jika bid ≥ `SELL_BID_MIN` (0.95) → jual FOK, kunci profit sebelum close. Jika bid ≤ `SELL_CUT_LOSS` (0.40) → jual FOK, ambil sisa nilai alih-alih hangus 0 saat arah melawan. Saat KONFIRMASI berlawanan arah dengan posisi → cut-loss segera, tidak menunggu harga anjlok.
+- **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap 15 detik. Jika ROI ≥ `SELL_ROI_MIN` (10%) → jual FOK, kunci profit lalu **bisa beli lagi** (scalping berulang sampai menit terakhir). Jika bid ≤ `SELL_CUT_LOSS` (0.40) → jual FOK, ambil sisa nilai alih-alih hangus 0. Saat KONFIRMASI berlawanan arah dengan posisi → cut-loss segera.
 - `TRADE_DRY_RUN=true` → hanya mencetak rencana order (lookup market + token) tanpa eksekusi. Aman untuk uji coba sebelum live.
 
 **Dana tidak pernah di-withdraw.** Semua USDC dan token hasil beli tetap sebagai collateral di dalam Polymarket (default CLOB). Untuk mengecek posisi/saldo: buka polymarket.com atau gunakan `client.list_positions(...)` dari SDK.
@@ -160,6 +160,7 @@ TRADE_HARD_MAX_ASK=0.65           # batas keras semua mode: beli hanya jika ask 
 TRADE_AGGRESSIVE=true             # prob >= TRADE_MIN_PROB -> langsung beli (lewati TRADE_MAX_ASK)
 TRADE_MIN_PROB=75                 # ambang probabilitas mode agresif, dalam persen
 SELL_BID_MIN=0.95                 # take-profit: jual jika best bid >= ambang
+SELL_ROI_MIN=0.10                 # take-profit ROI: jual saat (bid - entry)/entry >= ini (default 10%)
 SELL_CUT_LOSS=0.40                # cut-loss: jual jika best bid <= ambang (sisa nilai)
 ```
 
