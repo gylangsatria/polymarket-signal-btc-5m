@@ -64,7 +64,9 @@ Total skor > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|skor|/8 ×
 ## Akurasi & Verifikasi
 
 - Setelah window tutup, bot **memverifikasi** prediksi vs harga close aktual (`VERIFY: ... BENAR/SALAH`) dan menyimpan riwayat di `stats.json`.
-- Probabilitas yang dicetak = **win rate empiris** per bucket `|delta|` (tegas/kuat/sedang/tipis) setelah ≥ 15 sampel. Sebelum cukup sampel, memakai skor aturan (cap 80%).
+- Probabilitas = **estimasi Wilson** (shrinkage ke 50%): konservatif saat sampel sedikit, mendekati win rate saat sampel banyak. Contoh: `1/1 → 60%`, `7/10 → 64%`, `44/48 → 89%` — tidak ada lagi klaim ekstrem 100%/0% dari 1-2 sampel.
+- Kalibrasi: bucket `|delta|` (tegas/kuat/sedang/tipis) dipakai jika ≥ 8 sampel; kalau belum cukup, **pooling semua sampel** (lebih stabil); tanpa sampel sama sekali → skor aturan.
+- Probabilitas yang sama dipakai untuk **sinyal cetak DAN keputusan trade** (entry dinamis) — konsisten, tidak overconfident.
 - `[HOLD]` di KONFIRMASI = arah PREDIKSI dipertahankan karena pembalikan tipis (< 0.03%) dianggap noise.
 - Mulai fresh: hapus `stats.json`. Riwayat menumpuk antar-restart.
 

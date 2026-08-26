@@ -54,6 +54,36 @@ def bucket(delta_abs):
     return "tipis"
 
 
+def wilson_lb(w, n, z=1.96):
+    """Estimasi prob terkonservasi ala Wilson (center, shrinkage ke 50%).
+
+    n kecil -> prob tertarik mendekati 50% (tidak overconfident & tidak ekstrem 0/100%).
+    n besar -> prob mendekati win rate mentah.
+    Contoh: 1/1 -> 60%, 0/1 -> 40%, 7/10 -> 64%, 44/48 -> 89%.
+    """
+    if n <= 0:
+        return 0.5
+    return (w / n + z * z / (2 * n)) / (1 + z * z / n)
+
+
+def calibrated_prob(stats, delta, confidence):
+    """Probabilitas terkonservasi & akurat: Wilson empirik per bucket (>=8 sampel),
+    fallback pooled semua sampel (bucket belum cukup), terakhir skor aturan.
+
+    Dipakai untuk sinyal cetak DAN keputusan trade — konsisten, tidak overconfident.
+    """
+    d_abs = abs(delta)
+    b = bucket(d_abs)
+    rows = [s for s in stats if s["bucket"] == b]
+    n = len(rows)
+    if n >= 8:
+        return wilson_lb(sum(s["win"] for s in rows), n) * 100, f"empirik-{b} ({n} sampel)"
+    m = len(stats)
+    if m > 0:
+        return wilson_lb(sum(s["win"] for s in stats), m) * 100, f"empirik-pooled ({m} sampel)"
+    return confidence, "aturan"
+
+
 def load_stats():
     try:
         with open(STATS_FILE) as f:
@@ -244,16 +274,9 @@ def emit_signal(current_window, stats, tag, prev_up=None):
     et_str = f"{et_start.strftime('%I:%M %p')}-{et_end.strftime('%I:%M %p')} ET"
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] MARKET: {trader.SLUG_PREFIX}-{current_window} ({et_str})")
-    # Probabilitas = win rate empiris bucket delta (>=15 sampel), else skor aturan
+    # Probabilitas terkonservasi: Wilson empirik bucket/pooled, fallback aturan.
     d_abs = abs(delta)
-    b = bucket(d_abs)
-    rows = [s for s in stats if s["bucket"] == b]
-    if len(rows) >= 15:
-        prob = sum(s["win"] for s in rows) / len(rows) * 100
-        src = f"empirik-{b} ({len(rows)} sampel)"
-    else:
-        prob = confidence
-        src = "aturan"
+    prob, src = calibrated_prob(stats, delta, confidence)
     hold_txt = " [HOLD]" if held else ""
     print(f"[{ts}] {tag}: {dir_txt} (Prob: {prob:.1f}%){' [AI]' if ai_used else ''}{hold_txt} [{src}]")
     print(f"[{ts}] Prices: Open {op:.2f} -> Cur {cp:.2f} (delta {delta:+.3f}%)")
@@ -383,12 +406,15 @@ def main():
                 if direction:
                     delta = (cp - op) / op * 100
                     up = direction == "UP"
+                    # Prob untuk trade = EMPIRIK TERKALIBRASI (Wilson), bukan confidence
+                    # aturan mentah — konsisten dengan sinyal cetak & tidak overconfident.
+                    prob, _src = calibrated_prob(stats, delta, confidence)
                     # Jangan lawan tren: UP hanya jika harga naik, DOWN hanya jika turun.
                     if (up and delta < 0) or (not up and delta > 0):
                         ts = datetime.now().strftime("%H:%M:%S")
                         print(f"[{ts}] SKIP entry {direction}: delta {delta:+.3f}% lawan arah — tunggu tren")
                     elif trader.enabled():
-                        do_trade(current_window, up, confidence)
+                        do_trade(current_window, up, prob)
 
             # Kelola posisi tiap recheck: TAKE-PROFIT jika ROI >= SELL_ROI_MIN,
             # CUT-LOSS jika bid <= SELL_CUT_LOSS (sisa nilai — jual daripada hangus 0),
