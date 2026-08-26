@@ -146,7 +146,7 @@ else:          score -= 1
 
 | Gejala                     | Solusi                                                                       |
 | -------------------------- | ---------------------------------------------------------------------------- |
-| `Failed: api.binance.com`  | Normal jika jaringan memblokir domain itu; bot otomatis coba mirror `data-api.binance.vision`. |
+| `Failed: api.binance.com`  | Jaringan memblokir domain itu. Bot memakai mirror `data-api.binance.vision` yang kini **urutan pertama** — tidak ada lagi log error di operasi normal. |
 | `[AI] retry` di log        | Model reasoning timeout/kehabisan token — bot retry sekali lalu fallback.    |
 | `[AI] skipped` terus       | Cek `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` di `.env`. Atau matikan AI dengan mengosongkan `AI_API_KEY`. |
 | `ModuleNotFoundError: zoneinfo` | Pakai Python 3.9+ atau `pip install tzdata`.                                  |

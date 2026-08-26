@@ -154,7 +154,7 @@ docker compose up -d --build
 
 | Gejala                     | Solusi                                                    |
 | -------------------------- | --------------------------------------------------------- |
-| Semua Binance endpoint gagal | Gunakan `data-api.binance.vision` (mirror publik, sudah di fallback list). |
+| `Failed: api.binance.com` dkk | Normal jika jaringan memblokir domain itu. Mirror `data-api.binance.vision` sudah **diprioritaskan pertama** sejak 2026 — sukses tanpa log error. |
 | `[AI] retry` di log        | Normal — model reasoning kadang timeout, bot otomatis retry sekali lalu fallback. |
 | Waktu ET tidak pas         | Pastikan pakai Python 3.9+ (modul `zoneinfo` tersedia).   |
 

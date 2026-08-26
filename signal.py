@@ -11,11 +11,13 @@ load_dotenv()
 
 ET = ZoneInfo("America/New_York")  # auto-detect EDT/EST (DST)
 
+# data-api.binance.vision = mirror publik — satu-satunya yang terjangkau dari jaringan
+# server ini (api.binance.com dkk dapat "No route to host"/Errno 113). Taruh paling depan.
 BINANCE_URLS = [
+    "https://data-api.binance.vision/api/v3/klines",
     "https://api.binance.com/api/v3/klines",
     "https://api1.binance.com/api/v3/klines",
     "https://api2.binance.com/api/v3/klines",
-    "https://data-api.binance.vision/api/v3/klines",  # public mirror
 ]
 
 # --- AI (endpoint kompatibel OpenAI) ---
