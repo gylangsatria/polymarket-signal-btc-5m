@@ -301,6 +301,7 @@ def do_trade(current_window, up, prob=None):
             spent = float(res.get("spent", 0) or 0)
             price = spent / shares if shares else 0.0  # harga beli rata-rata
             position = (current_window, "UP" if up else "DOWN", res["token_id"], res["shares"], price, time.time())
+            save_position(position)
         return True
     else:
         print(f"[{ts}] TRADE [SKIP]: {trader.SLUG_PREFIX}-{current_window} ({res.get('msg')})")
@@ -317,6 +318,36 @@ def do_sell(window_ts, token_id, shares, reason="TAKE-PROFIT"):
         return True
     print(f"[{ts}] SELL [{reason} SKIP]: {trader.SLUG_PREFIX}-{window_ts} ({res.get('msg')})")
     return False
+
+
+POSITION_FILE = "position.json"
+
+
+def save_position(pos):
+    """Persist posisi ke file — restart container TIDAK menghapus posisi terbuka."""
+    try:
+        with open(POSITION_FILE, "w") as f:
+            if pos:
+                json.dump(list(pos), f)
+            else:
+                f.write("")
+    except Exception as e:
+        print(f"[persist] gagal simpan posisi: {e}")
+
+
+def load_position():
+    """Baca posisi tersimpan (kalau ada). Return tuple atau None."""
+    try:
+        if os.path.exists(POSITION_FILE):
+            with open(POSITION_FILE) as f:
+                raw = f.read()
+            if raw:
+                d = json.loads(raw)
+                if isinstance(d, (list, tuple)) and len(d) == 6:
+                    return tuple(d)
+    except Exception:
+        pass
+    return None
 
 
 # Modul-level: posisi yang sedang dipegang (window_ts, arah, token_id, shares).
@@ -338,6 +369,10 @@ def main():
     if stats:
         wins = sum(s["win"] for s in stats)
         print(f"Riwayat: {len(stats)} prediksi, win rate {wins/len(stats)*100:.1f}%")
+    position = load_position()
+    if position:
+        print(f"Posisi tersimpan dipulihkan: {trader.SLUG_PREFIX}-{int(position[0])} {position[1]} "
+              f"({position[3]} shares)")
 
     while True:
         try:
@@ -351,7 +386,11 @@ def main():
                 urgent_done = first_done = second_done = False
                 window_up = None  # arah PREDIKSI window ini (acuan anti-whipsaw)
                 last_recheck = 0.0
-                position = None  # window baru — posisi lama selesai (jual/hangus/redeem)
+                # Posisi dari window yang sudah tutup → selesai (settle otomatis).
+                # Posisi window SEKARANG (dipulihkan dari file) → tetap dikelola.
+                if position and position[0] != current_window:
+                    position = None
+                save_position(position)
                 stopped = False  # berhenti entry setelah 1 cut-loss di window ini
 
             # Verifikasi hasil window sebelumnya (kline final siap ~10s setelah tutup)
@@ -434,6 +473,7 @@ def main():
                               f"{trader.SELL_ROI_MIN*100:.0f}% — TAKE-PROFIT")
                         if do_sell(w, token_id, shares, reason="TAKE-PROFIT"):
                             position = None
+                            save_position(position)
                             if trader.STOP_AFTER_TAKE_PROFIT:
                                 stopped = True  # kunci profit — tunggu market berikutnya
                     elif bid <= trader.SELL_CUT_LOSS:
@@ -446,6 +486,7 @@ def main():
                             print(f"[{ts}] TARGET: bid {bid:.2f} <= {trader.SELL_CUT_LOSS:.2f} — CUT-LOSS")
                             if do_sell(w, token_id, shares, reason="CUT-LOSS"):
                                 position = None
+                                save_position(position)
                                 stopped = True  # stop entry: 1 rugi per window cukup
                     else:
                         print(f"[{ts}] POS: {direction} bid={bid:.2f} ROI {roi*100:.1f}% — hold "
@@ -466,6 +507,7 @@ def main():
                             print(f"[{ts}] KONFIRMASI {conf_dir} berlawanan posisi {pos_dir} — CUT-LOSS")
                             if do_sell(w, token_id, shares, reason="CUT-LOSS"):
                                 position = None
+                                save_position(position)
                                 stopped = True  # stop entry: jangan beli lagi setelah kalah
                 second_done = True
 
