@@ -14,7 +14,7 @@ close_time    = window_ts + 300            # window tutup 5 menit kemudian
 market slug   = btc-5m-{window_ts}
 ```
 
-Bot tidur sampai **T-15s s/d T-1s** sebelum window ditutup (saat arah harga praktis terkunci), lalu menghitung sinyal dan mencetaknya.
+Bot tidur sampai **menit ke-2 window** (T-180s s/d T-1s), menghitung sinyal, mencetaknya, lalu **memverifikasi hasil saat window tutup** — win rate empiris dihitung dan dipakai sebagai probabilitas (kalibrasi per bucket delta).
 
 ---
 
@@ -54,6 +54,19 @@ delta = (current_price - window_open) / window_open * 100
 `current > EMA9` → skor +1, sebaliknya −1.
 
 Total skor > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|skor|/8 × 100%`.
+
+---
+
+## Akurasi & Verifikasi
+
+- Setelah window tutup, bot **memverifikasi** prediksi vs harga close aktual (`VERIFY: ... BENAR/SALAH`) dan menyimpan riwayat di `stats.json`.
+- Probabilitas yang dicetak = **win rate empiris** per bucket `|delta|` (tegas/kuat/sedang/tipis) setelah ≥ 15 sampel. Sebelum cukup sampel, memakai skor aturan.
+- Mulai fresh: hapus `stats.json`. Riwayat menumpuk antar-restart.
+
+```
+[07:57:12] SIGNAL: UP 🟢 (Prob: 62.3%) [empirik-tegas (18 sampel)]
+[08:00:12] VERIFY: btc-5m-1787702100 BENAR (close 78510.00 vs open 78496.00) | win rate 61.1% (11/18)
+```
 
 ---
 
@@ -146,6 +159,6 @@ docker compose up -d --build
 ## Pelajaran Kunci
 
 1. **Window delta adalah raja.** TA jangka pendek (EMA, RSI) sangat bising di skala 5 menit. Delta vs harga buka window adalah jawaban langsung atas pertanyaan market.
-2. **Timing masuk itu segalanya.** T-15s s/d T-1s: cukup dekat agar arah terkunci, cukup jauh agar ada margin token.
+2. **Timing masuk itu segalanya.** Menit ke-2 window (T-180s): hasil muncul 3 menit sebelum tutup — banyak margin token, tapi makin awal makin belum terkunci, jadi ikuti probabilitas empiris, bukan sekadar arah.
 3. **AI hanya pelengkap.** Jangan biarkan AI membalik sinyal saat delta sudah tegas — itu justru menambah noise.
 4. **Rate limit Binance itu nyata.** Bot me-retry otomatis; kalau sering gagal, kurangi frekuensi fetch.

@@ -8,7 +8,7 @@ Panduan lengkap setup, konfigurasi AI, dan menjalankan bot sinyal BTC Up/Down (m
 
 1. Setiap window 5 menit Polymarket membuka market `btc-5m-{window_ts}`.
 2. Bot membaca kline 1-menit BTCUSDT dari Binance.
-3. T-15s s/d T-1s sebelum window tutup, bot menghitung sinyal:
+3. T-180s s/d T-1s sebelum window tutup (menit ke-2 window), bot menghitung sinyal:
    - Skor teknikal: **window delta** (dominant) + **EMA 9**.
    - Jika skor lemah (`|score| <= 4`), bot bertanya ke **AI** (9router/coding-fast) sebagai tiebreaker.
 4. Mencetak arah + confidence + sparkline chart ke terminal.
@@ -150,7 +150,7 @@ else:          score -= 1
 | `[AI] retry` di log        | Model reasoning timeout/kehabisan token — bot retry sekali lalu fallback.    |
 | `[AI] skipped` terus       | Cek `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` di `.env`. Atau matikan AI dengan mengosongkan `AI_API_KEY`. |
 | `ModuleNotFoundError: zoneinfo` | Pakai Python 3.9+ atau `pip install tzdata`.                                  |
-| Sinyal tidak pernah muncul  | Loop menunggu `time_into_window >= 285` (T-15s). Cek log saat menit ke-5.     |
+| Sinyal tidak pernah muncul  | Loop menunggu `time_into_window >= 120` (T-180s, menit ke-2). Cek log saat menit ke-2. |
 
 ---
 
