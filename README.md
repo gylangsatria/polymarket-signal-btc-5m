@@ -1,6 +1,6 @@
 # Polymarket BTC 5-Minute Signal Bot
 
-Signal bot untuk market binary Polymarket "BTC Up or Down" (5 menit). Bot membaca harga BTC real-time dari Binance, menjalankan analisis teknikal + AI tiebreaker, lalu **mencetak sinyal UP/DOWN** sebelum window 5-menit Polymarket ditutup. Ini mode *no-wallet*: bot hanya memberi sinyal, TIDAK melakukan order.
+Signal bot untuk market binary Polymarket "BTC Up or Down" (5 menit). Bot membaca harga BTC real-time dari Binance, menjalankan analisis teknikal + AI tiebreaker, lalu **mencetak sinyal UP/DOWN** sebelum window 5-menit Polymarket ditutup. Dengan `AUTO_TRADE=true`, sinyal KONFIRMASI (keputusan final) **langsung dieksekusi sebagai market order di Polymarket CLOB** — dana USDC & posisi tetap sebagai collateral di Polymarket, **tidak pernah ditarik ke wallet eksternal**.
 
 ---
 
@@ -11,7 +11,7 @@ Setiap 5 menit Polymarket membuka market: "Akankah BTC lebih tinggi/rendah dari 
 ```
 window_ts     = now - (now % 300)          # mulai window
 close_time    = window_ts + 300            # window tutup 5 menit kemudian
-market slug   = btc-5m-{window_ts}
+market slug   = btc-updown-5m-{window_ts}   # diverifikasi dari gamma-api
 ```
 
 Bot memunculkan **tiga sinyal per window**: **URGENT** (jika delta >= 0.15% di 1 menit awal), **PREDIKSI** di menit ke-2 (T-180s), lalu **KONFIRMASI** di T-60s (1 menit terakhir) sebelum tutup. Setelah tutup, bot **memverifikasi hasil** — win rate empiris dipakai sebagai probabilitas (kalibrasi per bucket delta).
@@ -22,7 +22,8 @@ Bot memunculkan **tiga sinyal per window**: **URGENT** (jika delta >= 0.15% di 1
 
 | File         | Isi                                                               |
 | ------------ | ----------------------------------------------------------------- |
-| `signal.py`  | Semua logika: fetch data Binance, TA, AI tiebreaker, loop utama.  |
+| `signal.py`  | Semua logika: fetch data Binance, TA, AI tiebreaker, loop utama, hook auto-trade. |
+| `trader.py`  | Auto-trader CLOB Polymarket via SDK resmi `polymarket-client` (auth, lookup market, market order FOK). |
 
 ### Dependensi
 
@@ -30,6 +31,7 @@ Bot memunculkan **tiga sinyal per window**: **URGENT** (jika delta >= 0.15% di 1
 requests>=2.31.0     # HTTP ke Binance + gateway AI
 pandas               # manipulasi kline
 python-dotenv>=1.0.0 # baca .env
+polymarket-client    # SDK resmi Polymarket CLOB (auto-trade)
 ```
 
 ---
@@ -69,7 +71,7 @@ Total skor > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|skor|/8 ×
 ```
 [07:57:12] PREDIKSI: UP 🟢 (Prob: 62.3%) [empirik-tegas (18 sampel)]
 [07:59:32] KONFIRMASI: UP 🟢 (Prob: 64.7%) [empirik-tegas (18 sampel)]
-[08:00:12] VERIFY: btc-5m-1787702100 BENAR (close 78510.00 vs open 78496.00) | win rate 61.1% (11/18)
+[08:00:12] VERIFY: btc-updown-5m-1787702100 BENAR (close 78510.00 vs open 78496.00) | win rate 61.1% (11/18)
 ```
 
 - Probabilitas dikalibrasi dari **hasil sinyal KONFIRMASI** (T-60s) — keputusan final.
@@ -95,10 +97,29 @@ AI_MODEL=coding-fast
 
 ---
 
+## Auto-Trade (CLOB Polymarket)
+
+Saat `AUTO_TRADE=true`, bot mengeksekusi **satu market order per window** di CLOB Polymarket lewat SDK resmi `polymarket-client`:
+
+- **Sinyal UP** → beli token **Up** (`btc-updown-5m-{window}`), **sinyal DOWN** → beli token **Down**.
+- Eksekusi di **PREDIKSI** (menit ke-2, T-180s) saat harga masih wajar; skip otomatis bila best ask > `TRADE_MAX_ASK` (default 0.6) atau tidak ada likuiditas. KONFIRMASI (T-60s) jadi fallback bila belum ada order. Dengan `TRADE_ON_URGENT=true`, sinyal URGENT juga langsung dieksekusi.
+- Order memakai `FOK` (fill-or-kill): modal yang tidak terisi penuh di book dibatalkan, tidak ada posisi parsial yang menggantung.
+- **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas prediksi ≥ `TRADE_MIN_PROB` (default 60, persen) → langsung FOK, **lewati** guard `TRADE_MAX_ASK` (baik arah UP maupun DOWN). Guard harga hanya aktif saat probabilitas di bawah ambang.
+- **Recheck**: selama belum ada order dan belum KONFIRMASI, bot mengecek ulang probabilitas tiap 15 detik — begitu naik ke ≥ `TRADE_MIN_PROB`, langsung eksekusi tanpa menunggu menit terakhir.
+- `TRADE_DRY_RUN=true` → hanya mencetak rencana order (lookup market + token) tanpa eksekusi. Aman untuk uji coba sebelum live.
+
+**Dana tidak pernah di-withdraw.** Semua USDC dan token hasil beli tetap sebagai collateral di dalam Polymarket (default CLOB). Untuk mengecek posisi/saldo: buka polymarket.com atau gunakan `client.list_positions(...)` dari SDK.
+
+```
+[07:57:00] PREDIKSI: UP 🟢 (Prob: 64.7%) [empirik-tegas (18 sampel)]
+[07:57:01] TRADE [ORDER OK]: btc-updown-5m-1787702100 UP orderID=0xabcdef1234...
+[08:00:12] VERIFY: btc-updown-5m-1787702100 BENAR ...
+```
+
 ## Output Contoh
 
 ```
-[07:59:45] MARKET: btc-5m-1787702100 (07:55 PM-08:00 PM ET)
+[07:59:45] MARKET: btc-updown-5m-1787702100 (07:55 PM-08:00 PM ET)
 [07:59:45] SIGNAL: UP 🟢 (Conf: 75.0%) [AI]
 [07:59:45] Prices: Open 78496.00 -> Cur 78510.00
 [07:59:45] Chart  : █▇▇▆▆▆▅▅▄▄▄▅▆▄▅▅▆▆▅▅▅▄▄▄▄▃▃▃▂▂▂▁▂▁▁▁▂▂▂▂
@@ -125,9 +146,21 @@ cp .env.example .env
 AI_API_KEY=sk-...
 AI_BASE_URL=https://ai-gateway.gylang.my.id/v1
 AI_MODEL=coding-fast
+
+# Auto-trade Polymarket
+POLY_PRIVATE_KEY=0x...            # private key penandatangan (EOA)
+# POLY_FUNDER_ADDRESS TIDAK dipakai — SDK menurunkan Deposit Wallet dari private key
+AUTO_TRADE=false                  # true untuk mengaktifkan order otomatis
+TRADE_AMOUNT_USD=5.0              # nominal per window (USD)
+TRADE_ON_URGENT=false             # true = eksekusi juga sinyal URGENT
+TRADE_DRY_RUN=true                # true = cetak rencana order, tanpa eksekusi
+TRADE_MAX_ASK=0.9                 # skip order jika best ask > ambang (harga masuk maksimal)
+TRADE_AGGRESSIVE=true             # prob >= TRADE_MIN_PROB -> langsung beli (lewati TRADE_MAX_ASK)
+TRADE_MIN_PROB=60                 # ambang probabilitas mode agresif, dalam persen
 ```
 
 > `.env` di-ignore oleh git. Jangan pernah commit isinya — mengandung secret.
+> API key CLOB (`POLY_API_KEY`/`POLY_API_SECRET`/`POLY_API_PASSPHRASE`) **tidak wajib** — SDK `polymarket-client` menurunkannya otomatis dari `POLY_PRIVATE_KEY`.
 
 3. Install dependensi:
 

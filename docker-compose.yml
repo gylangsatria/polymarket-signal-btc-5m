@@ -4,4 +4,11 @@ services:
     image: polymarket-signal:latest
     restart: unless-stopped
     network_mode: host
+    env_file: .env
+    # DNS lokal server ini adalah sinkhole untuk polymarket.com (resolve ke
+    # 202.169.44.80 yang tidak routable). Pin IP asli (Cloudflare, via DoH 1.1.1.1).
+    # Update jika IP berubah: https://1.1.1.1/dns-query?name=<host>&type=A
+    extra_hosts:
+      - "clob.polymarket.com:104.18.34.205"
+      - "gamma-api.polymarket.com:172.64.153.51"
     command: python3 -u signal.py

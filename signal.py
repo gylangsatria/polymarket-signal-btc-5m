@@ -7,6 +7,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
+import trader  # auto-trade (lazy import polymarket-client di dalamnya)
+
 load_dotenv()
 
 ET = ZoneInfo("America/New_York")  # auto-detect EDT/EST (DST)
@@ -31,6 +33,7 @@ SPARK = "▁▂▃▄▅▆▇█"
 TRIGGER_URGENT_MIN_DELTA = 0.15
 TRIGGER_FIRST_SEC = 120   # T-180s
 TRIGGER_CONFIRM_SEC = 240 # T-60s (1 menit sebelum tutup)
+RECHECK_INTERVAL = 15     # recheck probabilitas (untuk trigger beli) per N detik
 # Anti-whipsaw: KONFIRMASI hanya membalik arah jika delta berlawanan lebih dari ini (%).
 # Pembalikan kecil (harga nyaris di open) sering noise — tahan arah PREDIKSI (HOLD).
 FLIP_MIN_DELTA = 0.03
@@ -172,7 +175,7 @@ def ask_ai(delta_pct, cur_price, closes):
     return None
 
 
-def get_signal():
+def get_signal(allow_ai=True):
     now = int(time.time())
     window_ts = now - (now % 300)
     
@@ -204,7 +207,7 @@ def get_signal():
     # ponytail: AI hanya jadi tiebreaker saat sinyal aturan lemah (|score|<=4);
     # delta jendela tetap dominan. Kalau mau AI selalu konsultasi, hapus syarat abs(score).
     ai_used = False
-    if AI_API_KEY and abs(score) <= 4:
+    if allow_ai and AI_API_KEY and abs(score) <= 4:
         ai = ask_ai(delta, cur_price, df["close"].tolist())
         if ai:
             direction = ai[0].split()[0]  # "UP 🟢" -> "UP"
@@ -214,7 +217,7 @@ def get_signal():
     return direction, confidence, open_price, cur_price, ai_used, df["close"].tolist(), delta
 
 def emit_signal(current_window, stats, tag, prev_up=None):
-    """Cetak sinyal + probabilitas. Return (window, up, |delta|) atau None.
+    """Cetak sinyal + probabilitas. Return (window, up, |delta|, prob) atau None.
 
     prev_up = arah PREDIKSI. Anti-whipsaw: jika arah baru berlawanan tapi
     |delta|-nya kecil (< FLIP_MIN_DELTA), arah ditahan (HOLD) — pembalikan
@@ -235,7 +238,7 @@ def emit_signal(current_window, stats, tag, prev_up=None):
     et_end = datetime.fromtimestamp(current_window + 300, tz=ET)
     et_str = f"{et_start.strftime('%I:%M %p')}-{et_end.strftime('%I:%M %p')} ET"
     ts = datetime.now().strftime("%H:%M:%S")
-    print(f"[{ts}] MARKET: btc-5m-{current_window} ({et_str})")
+    print(f"[{ts}] MARKET: {trader.SLUG_PREFIX}-{current_window} ({et_str})")
     # Probabilitas = win rate empiris bucket delta (>=15 sampel), else skor aturan
     d_abs = abs(delta)
     b = bucket(d_abs)
@@ -251,20 +254,37 @@ def emit_signal(current_window, stats, tag, prev_up=None):
     print(f"[{ts}] Prices: Open {op:.2f} -> Cur {cp:.2f} (delta {delta:+.3f}%)")
     print(f"[{ts}] Chart  : {sparkline(closes[-40:])}")
     print("-" * 50)
-    return (current_window, up, d_abs)
+    return (current_window, up, d_abs, prob)
+
+
+def do_trade(current_window, up, prob=None):
+    """Eksekusi auto-trade via trader.py. Return True jika order sukses."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    res = trader.trade(current_window, up, prob=prob)
+    if res.get("ok"):
+        tag = "DRY-RUN" if res.get("msg") == "DRY-RUN" else "ORDER OK"
+        extra = res.get("order_id", "")
+        print(f"[{ts}] TRADE [{tag}]: {trader.SLUG_PREFIX}-{current_window} {'UP' if up else 'DOWN'}"
+              + (f" orderID={extra[:18]}" if extra else ""))
+    else:
+        print(f"[{ts}] TRADE [SKIP]: {trader.SLUG_PREFIX}-{current_window} ({res.get('msg')})")
+    return res.get("ok", False)
 
 
 def main():
-    print("Polymarket Signal Bot (No Wallet Mode) - Monitoring...")
+    mode = "AUTO-TRADE" if trader.enabled() else "signal-only"
+    dry = " (DRY-RUN)" if trader.DRY_RUN else ""
+    amt = f", ${trader.AMOUNT_USD:.2f}/window" if trader.enabled() else ""
+    print(f"Polymarket Signal Bot [{mode}{dry}{amt}] - Monitoring...")
     print("-----------------------------------------------------")
-    
+
     last_window = -1
     pending = None  # (window_ts, prediksi_up, |delta| saat sinyal) — dari sinyal TERAKHIR
     stats = load_stats()
     if stats:
         wins = sum(s["win"] for s in stats)
         print(f"Riwayat: {len(stats)} prediksi, win rate {wins/len(stats)*100:.1f}%")
-    
+
     while True:
         try:
             now = int(time.time())
@@ -275,12 +295,14 @@ def main():
             if current_window != last_window:
                 last_window = current_window
                 urgent_done = first_done = second_done = False
+                traded = False  # maksimal 1 order per window
                 window_up = None  # arah PREDIKSI window ini (acuan anti-whipsaw)
+                last_recheck = 0.0
 
             # Verifikasi hasil window sebelumnya (kline final siap ~10s setelah tutup)
             if pending and current_window != pending[0] and time_into_window >= 10:
                 # ... (kode verifikasi tetap sama) ...
-                w, up, d_abs = pending
+                w, up, d_abs, _ = pending
                 df = fetch_price(limit=20)
                 if df is not None and not df.empty:
                     o = df[df["ts"] == w * 1000]
@@ -295,7 +317,7 @@ def main():
                         wins = sum(s["win"] for s in stats)
                         ts = datetime.now().strftime("%H:%M:%S")
                         mark = "BENAR" if win else "SALAH"
-                        print(f"[{ts}] VERIFY: btc-5m-{w} {mark} (close {final_p:.2f} vs open {open_p:.2f}) | win rate {wins/total*100:.1f}% ({wins}/{total})")
+                        print(f"[{ts}] VERIFY: {trader.SLUG_PREFIX}-{w} {mark} (close {final_p:.2f} vs open {open_p:.2f}) | win rate {wins/total*100:.1f}% ({wins}/{total})")
                         pending = None
 
             # Sinyal URGENT (60s - 120s) - Hanya jika delta sangat kuat (>= 0.15%)
@@ -307,6 +329,9 @@ def main():
                     if p:
                         pending = p
                         window_up = p[1]
+                        # Entry cepat hanya jika diaktifkan (TRADE_ON_URGENT=true)
+                        if trader.enabled() and trader.trade_on_urgent() and not traded:
+                            traded = do_trade(current_window, p[1], p[3])
                     urgent_done = True
 
             # Sinyal awal di menit ke-2 (T-180s)
@@ -316,15 +341,40 @@ def main():
                 if p:
                     pending = p
                     window_up = p[1]
+                    # Eksekusi di menit ke-2 (harga masih wajar); skip otomatis jika ask > ambang.
+                    # KONFIRMASI T-60s di bawah jadi fallback bila belum ada order.
+                    if trader.enabled() and not traded:
+                        traded = do_trade(current_window, p[1], p[3])
                 first_done = True
+
+            # Recheck tiap 15 detik: jika belum trade & probabilitas naik >= ambang
+            # agresif, langsung eksekusi — tidak menunggu KONFIRMASI.
+            if (first_done and not traded and not second_done
+                    and time.time() - last_recheck >= RECHECK_INTERVAL):
+                last_recheck = time.time()
+                direction, confidence, _, _, _, _, delta = get_signal(allow_ai=False)
+                if direction:
+                    d_abs = abs(delta)
+                    b = bucket(d_abs)
+                    rows = [s for s in stats if s["bucket"] == b]
+                    prob = (sum(s["win"] for s in rows) / len(rows) * 100
+                            if len(rows) >= 15 else confidence)
+                    if prob >= trader.MIN_PROB:
+                        up = direction == "UP"
+                        ts = datetime.now().strftime("%H:%M:%S")
+                        print(f"[{ts}] RECHECK: {'UP' if up else 'DOWN'} prob {prob:.1f}% >= {trader.MIN_PROB:.0f}% — eksekusi")
+                        traded = do_trade(current_window, up, prob)
 
             # Konfirmasi T-60s sebelum tutup (1 menit terakhir; menimpa pending — keputusan final)
             if time_into_window >= TRIGGER_CONFIRM_SEC and not second_done:
                 p = emit_signal(current_window, stats, "KONFIRMASI", prev_up=window_up)
                 if p:
                     pending = p
+                    # Eksekusi auto-trade: sekali per window, arah KONFIRMASI (final)
+                    if trader.enabled() and not traded:
+                        traded = do_trade(current_window, p[1], p[3])
                 second_done = True
-            
+
             time.sleep(1)
         except Exception as e:
             print(f"Main loop error: {e}")

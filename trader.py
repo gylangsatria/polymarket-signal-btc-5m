@@ -1,0 +1,204 @@
+"""
+trader.py — Auto-trader Polymarket (CLOB) via SDK resmi `polymarket-client`.
+
+Sinyal UP  → beli token YES ("Up").
+Sinyal DOWN → beli token NO ("Down").
+
+PENTING: dana TIDAK pernah ditarik ke wallet eksternal. Semua USDC dan posisi
+tetap sebagai collateral di dalam Polymarket (perilaku default CLOB) — modul
+ini murni membuka posisi, tidak ada kode withdraw.
+
+Konfigurasi (.env):
+    AUTO_TRADE=true            # aktifkan trading
+    TRADE_AMOUNT_USD=5.0       # nominal per window (USD)
+    TRADE_ON_URGENT=false      # true = ikut eksekusi sinyal URGENT (delta kuat)
+    TRADE_DRY_RUN=true         # true = hanya cetak rencana order, tanpa eksekusi
+
+Auth pakai POLY_PRIVATE_KEY. API key dan Deposit Wallet diturunkan otomatis
+oleh SDK dari private key (tidak perlu POLY_FUNDER_ADDRESS / POLY_API_SECRET /
+POLY_API_PASSPHRASE di .env).
+
+`polymarket-client` di-import lazy di dalam fungsi supaya mode signal-only
+tetap jalan tanpa SDK terinstall.
+"""
+
+import os
+import time
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+PRIVATE_KEY = os.getenv("POLY_PRIVATE_KEY", "").strip()
+
+def _flag(name, default="false"):
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+AUTO_TRADE = _flag("AUTO_TRADE")
+DRY_RUN = _flag("TRADE_DRY_RUN")
+TRADE_ON_URGENT = _flag("TRADE_ON_URGENT")
+# Mode agresif: probabilitas prediksi >= TRADE_MIN_PROB -> langsung FOK,
+# lewati guard harga TRADE_MAX_ASK (asal ada likuiditas di book).
+AGGRESSIVE = _flag("TRADE_AGGRESSIVE")
+
+try:
+    AMOUNT_USD = float(os.getenv("TRADE_AMOUNT_USD", "0").strip() or 0)
+except ValueError:
+    AMOUNT_USD = 0.0
+
+# Harga masuk maksimal: skip order jika best ask CLOB > ambang (default 0.6).
+# Market updown 5m sering hanya punya ask 0.99 (spread MM) — beli di situ EV negatif.
+try:
+    MAX_ASK_PRICE = float(os.getenv("TRADE_MAX_ASK", "0.6").strip() or 0.6)
+except ValueError:
+    MAX_ASK_PRICE = 0.6
+
+# Ambang probabilitas untuk mode agresif (TRADE_AGGRESSIVE=true), dalam persen (0-100).
+try:
+    MIN_PROB = float(os.getenv("TRADE_MIN_PROB", "60").strip() or 60)
+except ValueError:
+    MIN_PROB = 60
+
+# Prefix slug market Polymarket: {asset}-updown-{duration}-{window_start_ts}
+# (diverifikasi dari gamma-api: "btc-updown-5m-1787709300" = window 01:55-02:00 UTC)
+SLUG_PREFIX = "btc-updown-5m"
+
+_client = None
+
+
+def enabled():
+    """True jika auto-trade aktif."""
+    return AUTO_TRADE
+
+
+def trade_on_urgent():
+    return TRADE_ON_URGENT
+
+
+def get_client():
+    """SecureClient (sync) — dibuat sekali, koneksi + derivasi API creds otomatis."""
+    global _client
+    if _client is None:
+        if not PRIVATE_KEY:
+            raise RuntimeError("POLY_PRIVATE_KEY kosong — isi .env")
+        from polymarket import SecureClient
+
+        # wallet=None → SDK memakai Deposit Wallet turunan dari private key.
+        # (JANGAN set wallet=POLY_FUNDER_ADDRESS dari .env: kalau address itu
+        #  bukan deposit wallet milik key ini, CLOB menolak order dengan
+        #  "maker address not allowed, please use the deposit wallet flow".)
+        _client = SecureClient.create(
+            private_key=PRIVATE_KEY,
+        )
+    return _client
+
+
+def pick_token_id(market, up):
+    """Pilih token id outcome UP/DOWN berdasarkan LABEL (bukan posisi index)."""
+    target = "up" if up else "down"
+    for oc in (market.outcomes.yes, market.outcomes.no):
+        label = (oc.label or "").strip().lower()
+        if label == target:
+            return oc.token_id
+    return None
+
+
+def get_best_ask(token_id):
+    """Best ask dari CLOB order book. None jika tidak ada penjual sama sekali."""
+    import requests
+
+    b = requests.get(f"https://clob.polymarket.com/book?token_id={token_id}", timeout=10).json()
+    asks = b.get("asks") or []
+    return min(float(a["price"]) for a in asks) if asks else None
+
+
+def check_entry(token_id):
+    """None jika layak eksekusi, else pesan kenapa skip."""
+    ask = get_best_ask(token_id)
+    if ask is None:
+        return "ask kosong (no liquidity)"
+    if ask > MAX_ASK_PRICE:
+        return f"ask {ask:.2f} > TRADE_MAX_ASK={MAX_ASK_PRICE}"
+    return None
+
+
+def trade(window_ts, up, prob=None):
+    """Eksekusi market order FOK untuk window. Return dict {ok, msg, ...}.
+
+    prob = probabilitas prediksi (%). Jika AGGRESSIVE dan prob >= TRADE_MIN_PROB,
+    guard harga TRADE_MAX_ASK dilewati — langsung FOK.
+    """
+    ts = time.strftime("%H:%M:%S")
+    slug = f"{SLUG_PREFIX}-{window_ts}"
+    side_txt = "UP" if up else "DOWN"
+    aggressive = AGGRESSIVE and prob is not None and prob >= MIN_PROB
+
+    if not AUTO_TRADE:
+        return {"ok": False, "msg": "AUTO_TRADE off"}
+    if AMOUNT_USD <= 0:
+        return {"ok": False, "msg": f"TRADE_AMOUNT_USD={AMOUNT_USD} tidak valid"}
+
+    try:
+        # DRY-RUN: lookup market publik saja — tidak butuh auth, aman untuk uji coba.
+        if DRY_RUN:
+            from polymarket import PublicClient
+
+            with PublicClient() as pc:
+                market = pc.get_market(slug=slug)
+            token_id = pick_token_id(market, up)
+            if aggressive:
+                ask = get_best_ask(token_id)
+                print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} ${AMOUNT_USD:.2f} "
+                      f"token={token_id} (market {market.id}) ask={ask} [AGRESIF prob={prob:.1f}%]")
+                return {"ok": True, "msg": "DRY-RUN", "token_id": token_id}
+            reason = check_entry(token_id)
+            if reason:
+                print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} SKIP ({reason})")
+                return {"ok": False, "msg": "DRY-RUN SKIP", "reason": reason}
+            print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} ${AMOUNT_USD:.2f} "
+                  f"token={token_id} (market {market.id})")
+            return {"ok": True, "msg": "DRY-RUN", "token_id": token_id}
+
+        client = get_client()
+        market = client.get_market(slug=slug)
+
+        if market.state.closed:
+            return {"ok": False, "msg": f"market {slug} sudah closed"}
+        if market.state.active is False or market.state.accepting_orders is False:
+            return {"ok": False, "msg": f"market {slug} tidak menerima order"}
+
+        token_id = pick_token_id(market, up)
+        if not token_id:
+            return {"ok": False, "msg": f"outcome '{side_txt}' tidak punya token id ({slug})"}
+
+        if not aggressive:
+            reason = check_entry(token_id)
+            if reason:
+                return {"ok": False, "msg": f"{slug} skip: {reason}"}
+        else:
+            print(f"[{ts}] agresif: prob={prob:.1f}% >= TRADE_MIN_PROB={MIN_PROB} — langsung FOK tanpa guard harga")
+
+        resp = client.place_market_order(
+            token_id=token_id,
+            side="BUY",
+            amount=str(AMOUNT_USD),
+            order_type="FOK",  # all-or-nothing; kalau likuiditas kurang, dibatalkan
+        )
+        if not resp.ok:
+            return {"ok": False, "msg": getattr(resp, "message", "order ditolak")}
+
+        filled = resp.status == "matched"
+        print(
+            f"[{ts}] TRADE{' FILLED' if filled else ''}: {slug} BUY {side_txt} "
+            f"orderID={resp.order_id} status={resp.status} "
+            f"spent=${resp.making_amount} got={resp.taking_amount}"
+            + (f" txs={list(resp.transactions_hashes)}" if resp.transactions_hashes else "")
+        )
+        return {
+            "ok": True,
+            "order_id": resp.order_id,
+            "status": resp.status,
+            "spent": str(resp.making_amount),
+        }
+    except Exception as e:
+        return {"ok": False, "msg": f"{type(e).__name__}: {e}"}

@@ -6,7 +6,7 @@ Panduan lengkap setup, konfigurasi AI, dan menjalankan bot sinyal BTC Up/Down (m
 
 ## 1. Apa yang Bot Ini Lakukan
 
-1. Setiap window 5 menit Polymarket membuka market `btc-5m-{window_ts}`.
+1. Setiap window 5 menit Polymarket membuka market `btc-updown-5m-{window_ts}`.
 2. Bot membaca kline 1-menit BTCUSDT dari Binance.
 3. Bot memunculkan **tiga sinyal**: **URGENT** (jika delta >= 0.15% di awal), **PREDIKSI** di menit ke-2 window (T-180s), dan **KONFIRMASI** di T-60s sebelum tutup (1 menit terakhir):
    - Skor teknikal: **window delta** (dominant) + **EMA 9**.
@@ -93,7 +93,7 @@ docker compose down
 ## 5. Membaca Output
 
 ```
-[07:59:45] MARKET: btc-5m-1787702100 (07:55 PM-08:00 PM ET)
+[07:59:45] MARKET: btc-updown-5m-1787702100 (07:55 PM-08:00 PM ET)
 [07:59:45] SIGNAL: UP 🟢 (Conf: 75.0%) [AI]
 [07:59:45] Prices: Open 78496.00 -> Cur 78510.00
 [07:59:45] Chart  : █▇▇▆▆▆▅▅▄▄▄▅▆▄▅▅▆▆▅▅▅▄▄▄▃▃▃▂▂▂▁▂▁▁▁▂▂▂▂
@@ -151,10 +151,11 @@ KONFIRMASI (T-60s, 1 menit terakhir) **tidak langsung membalik arah** PREDIKSI: 
 | Gejala                     | Solusi                                                                       |
 | -------------------------- | ---------------------------------------------------------------------------- |
 | `Failed: api.binance.com`  | Jaringan memblokir domain itu. Bot memakai mirror `data-api.binance.vision` yang kini **urutan pertama** — tidak ada lagi log error di operasi normal. |
+| `TRADE [SKIP] ... TransportError` | DNS lokal memblokir `polymarket.com` (sinkhole). Sudah diatasi via `extra_hosts` di `docker-compose.yml` — IP di-pin langsung ke Cloudflare. Update bila IP berubah: `https://1.1.1.1/dns-query?name=<host>&type=A`. |
 | `[AI] retry` di log        | Model reasoning timeout/kehabisan token — bot retry sekali lalu fallback.    |
 | `[AI] skipped` terus       | Cek `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` di `.env`. Atau matikan AI dengan mengosongkan `AI_API_KEY`. |
 | `ModuleNotFoundError: zoneinfo` | Pakai Python 3.9+ atau `pip install tzdata`.                                  |
-| Sinyal tidak pernah muncul  | Loop menunggu `time_into_window >= 120` (PREDIKSI) / `>= 240` (KONFIRMASI, T-60s). Cek log di menit ke-2 dan 1 menit terakhir. |
+| Sinyal tidak pernah muncul  | Loop menunggu `time_into_window >= 120` (PREDIKSI) / `>= 240` (KONFIRMASI, T-60s). Trade dieksekusi saat PREDIKSI (menit ke-2); KONFIRMASI jadi fallback. Cek log di menit ke-2. |
 
 ---
 
