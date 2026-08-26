@@ -110,16 +110,23 @@ Ubah di `.env` lalu `docker compose up -d` (tanpa rebuild). Di log, judul bot me
 
 ## Auto-Trade (CLOB Polymarket)
 
-Saat `AUTO_TRADE=true`, bot mengeksekusi **satu market order per window** di CLOB Polymarket lewat SDK resmi `polymarket-client`:
+Saat `AUTO_TRADE=true`, bot mengeksekusi market order **FOK** (fill-or-kill) di CLOB Polymarket lewat SDK resmi `polymarket-client`:
 
 - **Sinyal UP** → beli token **Up** (`btc-updown-5m-{window}`), **sinyal DOWN** → beli token **Down**.
-- Eksekusi di **PREDIKSI** (menit ke-2, T-180s) saat harga masih wajar; skip otomatis bila best ask > `TRADE_MAX_ASK` (default 0.6) atau tidak ada likuiditas. KONFIRMASI (T-60s) jadi fallback bila belum ada order. Dengan `TRADE_ON_URGENT=true`, sinyal URGENT juga langsung dieksekusi.
-- Order memakai `FOK` (fill-or-kill): modal yang tidak terisi penuh di book dibatalkan, tidak ada posisi parsial yang menggantung.
-- **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas prediksi ≥ `TRADE_MIN_PROB` (default 60, persen) → langsung FOK, **lewati** guard `TRADE_MAX_ASK` (baik arah UP maupun DOWN). Guard harga hanya aktif saat probabilitas di bawah ambang.
-- **Recheck**: selama belum ada order dan belum KONFIRMASI, bot mengecek ulang probabilitas tiap 15 detik — begitu naik ke ≥ `TRADE_MIN_PROB`, langsung eksekusi tanpa menunggu menit terakhir.
-- **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap 15 detik. Jika ROI ≥ `SELL_ROI_MIN` (10%) → jual FOK, kunci profit lalu **berhenti di window itu** (tunggu market berikutnya; set `STOP_AFTER_TAKE_PROFIT=false` untuk mengembalikan perilaku lama: bisa beli lagi / scalping dalam 1 window). Jika bid ≤ `SELL_CUT_LOSS` (0.25) → jual FOK, ambil sisa nilai, **dan berhenti entry di window itu** (1 rugi per window cukup). **Jeda cut-loss**: < `SELL_CUT_LOSS_MIN_ELAPSED` (90s) sejak entry, bot HOLD — window 5m volatil di menit 1-2, harga bisa menyapu 0.30-an lalu kembali (kasus nyata: cut @0.36 padahal prediksi benar). Saat KONFIRMASI berlawanan arah → cut-loss segera + stop entry.
-- **Anti-melawan-pasar**: entry hanya jika arah sinyal searah tren harga saat ini (UP saat harga naik, DOWN saat turun), dan tidak membeli token < `TRADE_MIN_ASK` (0.35) — token semurah itu = sisi yang pasar sudah yakin kalah.
-- `TRADE_DRY_RUN=true` → hanya mencetak rencana order (lookup market + token) tanpa eksekusi. Aman untuk uji coba sebelum live.
+- **Entry dinamis**: mulai menit ke-1 (60s) sampai menit ke-4,5 (270s), bot mengecek **tiap 15 detik** — masuk begitu probabilitas & harga cocok, tanpa harus menunggu PREDIKSI. Tidak perlu order parsial menggantung.
+- **Guard harga 3 lapis** (semua cek best ask CLOB):
+  - `TRADE_MAX_ASK` (0.6) — jalur normal: skip jika harga masuk di atas ambang.
+  - `TRADE_HARD_MAX_ASK` (0.65) — **keras, berlaku SEMUA mode termasuk agresif**: beli hanya jika ask ≤ ini. Mencegah entry 0.70–0.99 yang EV negatif (menang cuma +3%, kalah −100%).
+  - `TRADE_MIN_ASK` (0.35) — jangan beli token semurah ini (sisi yang pasar sudah yakin kalah).
+- **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas ≥ `TRADE_MIN_PROB` (75) → langsung FOK, **lewati** `TRADE_MAX_ASK` — tapi tetap tunduk `TRADE_HARD_MAX_ASK` & `TRADE_MIN_ASK`.
+- **Anti-melawan-pasar**: entry hanya jika arah sinyal **searah tren harga saat ini** (UP saat harga naik, DOWN saat turun); kalau melawan tren, tunggu.
+- **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap 15 detik.
+  - ROI ≥ `SELL_ROI_MIN` (10%) → jual FOK, kunci profit, lalu **berhenti di window itu** (tunggu market berikutnya). Set `STOP_AFTER_TAKE_PROFIT=false` untuk perilaku lama: bisa beli lagi / scalping dalam 1 window.
+  - bid ≤ `SELL_CUT_LOSS` (0.25) **dan** sudah ≥ `SELL_CUT_LOSS_MIN_ELAPSED` (90s) sejak entry → jual FOK, ambil sisa nilai, lalu **berhenti entry di window itu** (1 rugi per window cukup).
+  - Jeda 90s = window 5m volatil di menit 1-2; tanpa jeda bot sempat cut @0.36 padahal prediksi benar (harga sempat menyapu rendah lalu kembali).
+  - KONFIRMASI berlawanan arah dengan posisi → cut-loss **segera** (tanpa jeda) + stop entry.
+- **Maksimal 1 posisi terbuka**, dan default **1 trade per window** (profit atau rugi) — sisanya tunggu market berikutnya.
+- `TRADE_ON_URGENT=true` → sinyal URGENT (delta ≥ 0.15% di awal) juga dieksekusi; `TRADE_DRY_RUN=true` → cetak rencana order tanpa eksekusi (uji coba aman).
 
 **Dana tidak pernah di-withdraw.** Semua USDC dan token hasil beli tetap sebagai collateral di dalam Polymarket (default CLOB). Untuk mengecek posisi/saldo: buka polymarket.com atau gunakan `client.list_positions(...)` dari SDK.
 
@@ -133,7 +140,7 @@ Saat `AUTO_TRADE=true`, bot mengeksekusi **satu market order per window** di CLO
 
 ```
 [07:59:45] MARKET: btc-updown-5m-1787702100 (07:55 PM-08:00 PM ET)
-[07:59:45] SIGNAL: UP 🟢 (Conf: 75.0%) [AI]
+[07:59:45] PREDIKSI: UP 🟢 (Prob: 75.0%) [aturan]
 [07:59:45] Prices: Open 78496.00 -> Cur 78510.00
 [07:59:45] Chart  : █▇▇▆▆▆▅▅▄▄▄▅▆▄▅▅▆▆▅▅▅▄▄▄▄▃▃▃▂▂▂▁▂▁▁▁▂▂▂▂
 --------------------------------------------------
@@ -163,19 +170,20 @@ AI_MODEL=coding-fast
 # Auto-trade Polymarket
 POLY_PRIVATE_KEY=0x...            # private key penandatangan (EOA)
 # POLY_FUNDER_ADDRESS TIDAK dipakai — SDK menurunkan Deposit Wallet dari private key
-AUTO_TRADE=false                  # true untuk mengaktifkan order otomatis
-TRADE_AMOUNT_USD=5.0              # nominal per window (USD)
+AUTO_TRADE=false                  # false = signal-only; true = auto-trading
+TRADE_AMOUNT_USD=1.0              # nominal per window (USD)
 TRADE_ON_URGENT=false             # true = eksekusi juga sinyal URGENT
 TRADE_DRY_RUN=true                # true = cetak rencana order, tanpa eksekusi
-TRADE_MAX_ASK=0.9                 # skip order jika best ask > ambang (harga masuk maksimal, jalur normal)
-TRADE_HARD_MAX_ASK=0.65           # batas keras semua mode: beli hanya jika ask <= ini (hindari 0.90+ = EV negatif)
+TRADE_MAX_ASK=0.6                 # jalur normal: skip jika best ask > ambang
+TRADE_HARD_MAX_ASK=0.65           # batas keras SEMUA mode (termasuk agresif): beli hanya jika ask <= ini
 TRADE_MIN_ASK=0.35                # jangan beli token semurah ini (sisi yang pasar sudah yakin kalah)
 TRADE_AGGRESSIVE=true             # prob >= TRADE_MIN_PROB -> langsung beli (lewati TRADE_MAX_ASK)
 TRADE_MIN_PROB=75                 # ambang probabilitas mode agresif, dalam persen
 SELL_BID_MIN=0.95                 # take-profit: jual jika best bid >= ambang
-SELL_ROI_MIN=0.10                 # take-profit ROI: jual saat (bid - entry)/entry >= ini (default 10%)
+SELL_ROI_MIN=0.10                 # take-profit ROI: jual saat (bid - entry)/entry >= ini (10%)
 SELL_CUT_LOSS=0.25                # cut-loss: jual jika best bid <= ambang (jual hanya saat benar-benar mati)
 SELL_CUT_LOSS_MIN_ELAPSED=90      # jangan cut-loss di < N detik pertama sejak entry (market masih volatile)
+STOP_AFTER_TAKE_PROFIT=true       # true = setelah TP berhenti di window itu; false = bisa beli lagi (scalping)
 ```
 
 > `.env` di-ignore oleh git. Jangan pernah commit isinya — mengandung secret.
@@ -211,7 +219,53 @@ docker compose up -d --build
 | -------------------------- | --------------------------------------------------------- |
 | `Failed: api.binance.com` dkk | Normal jika jaringan memblokir domain itu. Mirror `data-api.binance.vision` sudah **diprioritaskan pertama** sejak 2026 — sukses tanpa log error. |
 | `[AI] retry` di log        | Normal — model reasoning kadang timeout, bot otomatis retry sekali lalu fallback. |
+| `TRADE [SKIP] ... harga terlalu mahal — EV negatif` | Best ask > `TRADE_HARD_MAX_ASK` (0.65). Bot sengaja menolak — bayar 0.70–0.99 untuk untung cuma 3-40% tapi rugi 100% adalah EV negatif. |
+| `TRADE [SKIP] ... not enough balance / allowance` | Saldo deposit wallet Polymarket < `TRADE_AMOUNT_USD`. Top-up USDC di polymarket.com atau turunkan nominal di `.env`. |
+| `SKIP entry ... lawan arah` | Prediksi melawan tren harga saat ini — bot menunggu sampai searah. |
+| `[AUTO_TRADE, ...]` di log vs `[signal-only]` | Mode ditentukan `AUTO_TRADE` di `.env` (true/false). |
 | Waktu ET tidak pas         | Pastikan pakai Python 3.9+ (modul `zoneinfo` tersedia).   |
+
+---
+
+## FAQ
+
+### 1. Kenapa bot jarang trade / sering `TRADE [SKIP]`?
+Guard harga bekerja. Log `ask 0.82 > TRADE_HARD_MAX_ASK=0.65` berarti token termurah yang tersedia **0.82** — bot menolak karena bayar 0.82 untuk menang cuma +18% tapi kalah −100% (EV negatif). Bot hanya masuk di harga wajar (≤ 0.65) + searah tren. Lebih jarang trade tapi tiap trade punya peluang untung — itu disengaja.
+
+### 2. Kenapa `TRADE [SKIP]: ask 0.62 > prob 50% (EV negatif)`?
+Guard EV jalur normal: harga 0.62 lebih mahal dari keyakinan model (50%) — membeli itu rugi terjamin secara statistik. Skip benar.
+
+### 3. Kenapa kadang cut-loss padahal prediksinya benar?
+Window 5m sangat volatil di 1-2 menit pertama — harga bisa menyapu 0.30-an lalu kembali (kasus nyata: cut @0.36 padahal window berakhir BENAR). Dua lapis proteksi sudah dipasang: `SELL_CUT_LOSS` diturunkan ke 0.25 (jual hanya saat benar-benar mati) dan `SELL_CUT_LOSS_MIN_ELAPSED=90` (90 detik pertama sejak entry bot HOLD). Cut-loss yang tersisa (setelah 90s, bid ≤ 0.25, atau KONFIRMASI membalik) itu memang keputusan benar.
+
+### 4. Kenapa `not enough balance: balance 1812095, order amount 2060190`?
+Saldo deposit wallet Polymarket (< $1.81) lebih kecil dari nominal order ($2.06). Top-up USDC di polymarket.com, atau turunkan `TRADE_AMOUNT_USD` di `.env`. Angka memakai unit 1e-6: `1812095` = $1.812.
+
+### 5. Bagaimana pindah antara signal-only dan auto-trading?
+Ubah `AUTO_TRADE` di `.env` → `docker compose up -d` (tanpa rebuild):
+- `false` = SIGNAL-ONLY (prediksi saja, tidak ada order)
+- `true` = AUTO-TRADING ($`TRADE_AMOUNT_USD` per window)
+Log judul menunjukkan mode: `[AUTO-TRADE, $1.00/window]` vs `[signal-only]`.
+
+### 6. Kenapa bot berhenti trade setelah 1 profit atau 1 rugi?
+`STOP_AFTER_TAKE_PROFIT=true` (default) dan `stopped` setelah cut-loss — **1 trade per window** disengaja: kunci satu profit bersih (atau batasi satu rugi) lalu tunggu market 5 menit berikutnya. Set `STOP_AFTER_TAKE_PROFIT=false` kalau ingin scalping ulang dalam 1 window.
+
+### 7. Apakah dana bisa ditarik ke wallet eksternal?
+Tidak pernah. Semua USDC & token tetap sebagai **collateral di Polymarket** (default CLOB). Untuk cek posisi/saldo buka polymarket.com atau `client.list_positions(...)`.
+
+### 8. Kenapa ada `SKIP entry ... lawan arah — tunggu tren`?
+Bot menolak masuk saat prediksi melawan tren harga saat ini (contoh: prediksi UP tapi harga sedang turun). Anti-whipsaw — menunggu sampai sinyal & tren searah.
+
+### 9. Bagaimana memastikan container memakai kode terbaru (stale image)?
+Bug lama: `docker compose up -d --build` bisa selesai membangun image tapi container lama tetap jalan (terkill timeout). Periksa:
+```bash
+docker inspect $(docker ps -q -f name=polymarketbot-signal) --format '{{.Image}}'
+docker images polymarket-signal --format '{{.ID}}'
+```
+Kalau beda: `docker compose down && docker compose up -d`.
+
+### 10. Apa itu FOK (fill-or-kill)?
+Market order yang hanya eksekusi jika seluruh nominal terisi saat itu juga; kalau tidak, dibatalkan — tidak ada posisi parsial yang menggantung. Sisa modal kembali ke deposit wallet.
 
 ---
 

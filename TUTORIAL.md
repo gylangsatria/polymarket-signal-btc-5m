@@ -1,6 +1,8 @@
 # Tutorial: Polymarket BTC 5-Minute Signal Bot
 
-Panduan lengkap setup, konfigurasi AI, dan menjalankan bot sinyal BTC Up/Down (mode no-wallet). Bot ini **hanya memberi sinyal** — tidak ada order/transaksi otomatis.
+Panduan lengkap setup, konfigurasi AI, dan menjalankan bot sinyal BTC Up/Down. Bot bisa dijalankan di **dua mode** (diatur `AUTO_TRADE` di `.env`):
+- `AUTO_TRADE=false` → **SIGNAL-ONLY**: hanya memberi sinyal, tidak ada order/transaksi otomatis (mode default tutorial ini).
+- `AUTO_TRADE=true` → **AUTO-TRADING**: prediksi + eksekusi order otomatis di Polymarket CLOB (strategi lengkap + FAQ: lihat [README.md](README.md)).
 
 ---
 
@@ -94,7 +96,7 @@ docker compose down
 
 ```
 [07:59:45] MARKET: btc-updown-5m-1787702100 (07:55 PM-08:00 PM ET)
-[07:59:45] SIGNAL: UP 🟢 (Conf: 75.0%) [AI]
+[07:59:45] PREDIKSI: UP 🟢 (Prob: 75.0%) [aturan]
 [07:59:45] Prices: Open 78496.00 -> Cur 78510.00
 [07:59:45] Chart  : █▇▇▆▆▆▅▅▄▄▄▅▆▄▅▅▆▆▅▅▅▄▄▄▃▃▃▂▂▂▁▂▁▁▁▂▂▂▂
 --------------------------------------------------
@@ -103,9 +105,11 @@ docker compose down
 | Baris      | Arti                                                              |
 | ---------- | ----------------------------------------------------------------- |
 | `MARKET`   | Slug market dan rentang waktu window dalam ET (auto DST).         |
-| `SIGNAL`   | Arah prediksi + confidence. Tanda `[AI]` = keputusan dibantu AI.  |
+| `PREDIKSI` | Arah prediksi + probabilitas (win rate empiris / aturan / AI).    |
 | `Prices`   | Harga buka window vs harga terkini.                               |
 | `Chart`    | Sparkline 40 menit terakhir (kanan = terkini).                    |
+
+Urutan sinyal per window: **URGENT** (delta ≥ 0.15% di 1 menit awal, opsional), **PREDIKSI** (menit ke-2, T-180s), **KONFIRMASI** (T-60s, 1 menit terakhir — keputusan final).
 
 ---
 
@@ -155,7 +159,8 @@ KONFIRMASI (T-60s, 1 menit terakhir) **tidak langsung membalik arah** PREDIKSI: 
 | `[AI] retry` di log        | Model reasoning timeout/kehabisan token — bot retry sekali lalu fallback.    |
 | `[AI] skipped` terus       | Cek `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` di `.env`. Atau matikan AI dengan mengosongkan `AI_API_KEY`. |
 | `ModuleNotFoundError: zoneinfo` | Pakai Python 3.9+ atau `pip install tzdata`.                                  |
-| Sinyal tidak pernah muncul  | Loop menunggu `time_into_window >= 120` (PREDIKSI) / `>= 240` (KONFIRMASI, T-60s). Trade dieksekusi saat PREDIKSI (menit ke-2); KONFIRMASI jadi fallback. Cek log di menit ke-2. |
+| Sinyal tidak pernah muncul  | Bot mencetak PREDIKSI di menit ke-2 dan KONFIRMASI di menit terakhir; entry auto-trade dinamis mulai menit ke-1 (tiap 15 detik) hanya jika harga cocok. Cek log di menit ke-2. |
+| `TRADE [SKIP] ... harga terlalu mahal — EV negatif` | Guard harga menolak entry mahal (best ask > `TRADE_HARD_MAX_ASK`). Detail: [README FAQ](README.md). |
 
 ---
 
