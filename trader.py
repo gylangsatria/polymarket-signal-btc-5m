@@ -143,8 +143,8 @@ def get_duration_seconds():
 WINDOW_SECONDS = get_duration_seconds()
 # Trigger sinyal menyesuaikan durasi (T-60s untuk konfirmasi)
 TRIGGER_CONFIRM_SEC = WINDOW_SECONDS - 60
-# Prediksi dasar di tengah window atau minimal 2 menit setelah buka
-TRIGGER_FIRST_SEC = max(120, WINDOW_SECONDS // 2)
+# Prediksi dasar: majukan ke menit ke-10 (600s) agar jendela trading lebih lebar
+TRIGGER_FIRST_SEC = max(120, WINDOW_SECONDS // 6)
 
 # Mode beli lagi setelah TP (Scalping dalam 1 window)
 ALLOW_REENTRY = _flag("ALLOW_REENTRY", default="false")
