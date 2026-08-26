@@ -8,7 +8,7 @@ Panduan lengkap setup, konfigurasi AI, dan menjalankan bot sinyal BTC Up/Down (m
 
 1. Setiap window 5 menit Polymarket membuka market `btc-5m-{window_ts}`.
 2. Bot membaca kline 1-menit BTCUSDT dari Binance.
-3. Bot memunculkan **2 sinyal**: **PREDIKSI** di menit ke-2 window (T-180s) dan **KONFIRMASI** di T-60s sebelum tutup (1 menit terakhir):
+3. Bot memunculkan **tiga sinyal**: **URGENT** (jika delta >= 0.15% di awal), **PREDIKSI** di menit ke-2 window (T-180s), dan **KONFIRMASI** di T-60s sebelum tutup (1 menit terakhir):
    - Skor teknikal: **window delta** (dominant) + **EMA 9**.
    - Jika skor lemah (`|score| <= 4`), bot bertanya ke **AI** (9router/coding-fast) sebagai tiebreaker.
 4. Mencetak arah + confidence + sparkline chart ke terminal.

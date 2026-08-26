@@ -27,7 +27,8 @@ AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini").strip()
 
 SPARK = "▁▂▃▄▅▆▇█"
 
-# Dua sinyal per window: menit ke-2 (prediksi awal) + 1 menit terakhir (konfirmasi).
+# Sinyal URGENT jika delta sangat kuat di awal window.
+TRIGGER_URGENT_MIN_DELTA = 0.15
 TRIGGER_FIRST_SEC = 120   # T-180s
 TRIGGER_CONFIRM_SEC = 240 # T-60s (1 menit sebelum tutup)
 # Anti-whipsaw: KONFIRMASI hanya membalik arah jika delta berlawanan lebih dari ini (%).
@@ -273,11 +274,12 @@ def main():
             # Window baru → reset penanda sinyal
             if current_window != last_window:
                 last_window = current_window
-                first_done = second_done = False
+                urgent_done = first_done = second_done = False
                 window_up = None  # arah PREDIKSI window ini (acuan anti-whipsaw)
 
             # Verifikasi hasil window sebelumnya (kline final siap ~10s setelah tutup)
             if pending and current_window != pending[0] and time_into_window >= 10:
+                # ... (kode verifikasi tetap sama) ...
                 w, up, d_abs = pending
                 df = fetch_price(limit=20)
                 if df is not None and not df.empty:
@@ -296,11 +298,23 @@ def main():
                         print(f"[{ts}] VERIFY: btc-5m-{w} {mark} (close {final_p:.2f} vs open {open_p:.2f}) | win rate {wins/total*100:.1f}% ({wins}/{total})")
                         pending = None
 
+            # Sinyal URGENT (60s - 120s) - Hanya jika delta sangat kuat (>= 0.15%)
+            if 60 <= time_into_window < TRIGGER_FIRST_SEC and not urgent_done:
+                _, _, op, cp, _, _, _ = get_signal()
+                delta = (cp - op) / op * 100
+                if abs(delta) >= TRIGGER_URGENT_MIN_DELTA:
+                    p = emit_signal(current_window, stats, "URGENT")
+                    if p:
+                        pending = p
+                        window_up = p[1]
+                    urgent_done = True
+
             # Sinyal awal di menit ke-2 (T-180s)
             if time_into_window >= TRIGGER_FIRST_SEC and not first_done:
+                # Jika sudah urgent, tidak perlu cetak prediksi dasar kecuali arah berubah (jarang)
                 p = emit_signal(current_window, stats, "PREDIKSI")
                 if p:
-                    pending = p  # fallback: kalau konfirmasi gagal, verifikasi pakai ini
+                    pending = p
                     window_up = p[1]
                 first_done = True
 

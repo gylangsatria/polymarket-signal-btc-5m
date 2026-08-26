@@ -14,7 +14,7 @@ close_time    = window_ts + 300            # window tutup 5 menit kemudian
 market slug   = btc-5m-{window_ts}
 ```
 
-Bot memunculkan **2 sinyal per window**: **PREDIKSI** di menit ke-2 (T-180s) lalu **KONFIRMASI** di T-60s (1 menit terakhir) sebelum tutup. Setelah tutup, bot **memverifikasi hasil** — win rate empiris dipakai sebagai probabilitas (kalibrasi per bucket delta).
+Bot memunculkan **tiga sinyal per window**: **URGENT** (jika delta >= 0.15% di 1 menit awal), **PREDIKSI** di menit ke-2 (T-180s), lalu **KONFIRMASI** di T-60s (1 menit terakhir) sebelum tutup. Setelah tutup, bot **memverifikasi hasil** — win rate empiris dipakai sebagai probabilitas (kalibrasi per bucket delta).
 
 ---
 
@@ -73,7 +73,7 @@ Total skor > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|skor|/8 ×
 ```
 
 - Probabilitas dikalibrasi dari **hasil sinyal KONFIRMASI** (T-60s) — keputusan final.
-- `PREDIKSI` (T-180s) untuk aksi lebih awal; `KONFIRMASI` (T-60s, 1 menit terakhir) untuk memastikan.
+- `URGENT` (Delta >= 0.15% di 1 menit awal) untuk entry sangat cepat; `PREDIKSI` (T-180s) untuk aksi awal; `KONFIRMASI` (T-60s, 1 menit terakhir) untuk memastikan.
 
 ---
 
