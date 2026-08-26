@@ -288,7 +288,13 @@ def do_sell(window_ts, token_id, shares, reason="TAKE-PROFIT"):
     return False
 
 
+# Modul-level: posisi yang sedang dipegang (window_ts, arah, token_id, shares).
+# Dipakai bersama do_trade (tulis) dan main (kelola take-profit/cut-loss).
+position = None
+
+
 def main():
+    global position
     mode = "AUTO-TRADE" if trader.enabled() else "signal-only"
     dry = " (DRY-RUN)" if trader.DRY_RUN else ""
     amt = f", ${trader.AMOUNT_USD:.2f}/window" if trader.enabled() else ""
@@ -297,7 +303,6 @@ def main():
 
     last_window = -1
     pending = None  # (window_ts, prediksi_up, |delta| saat sinyal) — dari sinyal TERAKHIR
-    position = None  # (window_ts, arah, token_id, shares) — posisi untuk kelola (take-profit/cut-loss)
     stats = load_stats()
     if stats:
         wins = sum(s["win"] for s in stats)
