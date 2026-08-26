@@ -30,6 +30,10 @@ SPARK = "▁▂▃▄▅▆▇█"
 # Dua sinyal per window: menit ke-2 (prediksi awal) + T-30s (konfirmasi).
 TRIGGER_FIRST_SEC = 120   # T-180s
 TRIGGER_CONFIRM_SEC = 270 # T-30s
+# Anti-whipsaw: KONFIRMASI hanya membalik arah jika delta berlawanan lebih dari ini (%).
+# Pembalikan kecil (harga nyaris di open) sering noise — tahan arah PREDIKSI (HOLD).
+FLIP_MIN_DELTA = 0.03
+MAX_RULE_CONF = 80.0      # confidence aturan dibatasi — 100% terlalu yakin untuk prediksi 1 menit.
 STATS_FILE = "stats.json"  # riwayat prediksi vs hasil aktual (win rate empiris)
 
 
@@ -173,7 +177,7 @@ def get_signal():
     
     df = fetch_price()
     if df is None or df.empty:
-        return None, 0, 0, 0, False, []
+        return None, 0, 0, 0, False, [], 0.0
     
     window_row = df[df["ts"] == window_ts * 1000]
     if window_row.empty:
@@ -193,8 +197,8 @@ def get_signal():
     if cur_price > ema9: score += 1
     else: score -= 1
 
-    direction = "UP 🟢" if score > 0 else "DOWN 🔴"
-    confidence = min(100, abs(score) / 8 * 100)
+    direction = "UP" if score > 0 else "DOWN"
+    confidence = min(MAX_RULE_CONF, abs(score) / 8 * 100)
 
     # ponytail: AI hanya jadi tiebreaker saat sinyal aturan lemah (|score|<=4);
     # delta jendela tetap dominan. Kalau mau AI selalu konsultasi, hapus syarat abs(score).
@@ -202,25 +206,37 @@ def get_signal():
     if AI_API_KEY and abs(score) <= 4:
         ai = ask_ai(delta, cur_price, df["close"].tolist())
         if ai:
-            direction, ai_conf = ai
-            confidence = max(confidence, min(ai_conf, 70))
+            direction = ai[0].split()[0]  # "UP 🟢" -> "UP"
+            confidence = max(confidence, min(ai[1], 70))
             ai_used = True
 
-    return direction, confidence, open_price, cur_price, ai_used, df["close"].tolist()
+    return direction, confidence, open_price, cur_price, ai_used, df["close"].tolist(), delta
 
-def emit_signal(current_window, stats, tag):
-    """Cetak sinyal + probabilitas. Return (window, up, |delta|) atau None."""
-    direction, confidence, op, cp, ai_used, closes = get_signal()
+def emit_signal(current_window, stats, tag, prev_up=None):
+    """Cetak sinyal + probabilitas. Return (window, up, |delta|) atau None.
+
+    prev_up = arah PREDIKSI. Anti-whipsaw: jika arah baru berlawanan tapi
+    |delta|-nya kecil (< FLIP_MIN_DELTA), arah ditahan (HOLD) — pembalikan
+    tipis mendekati harga open sering noise dan bisa balik lagi.
+    """
+    direction, confidence, op, cp, ai_used, closes, delta = get_signal()
     if not direction:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Signal failed (Binance error).")
         return None
+    up = direction == "UP"
+    held = False
+    if prev_up is not None and up != prev_up and abs(delta) < FLIP_MIN_DELTA:
+        up, held = prev_up, True
+        direction = "UP" if up else "DOWN"
+        confidence = min(confidence, 40.0)
+    dir_txt = "UP 🟢" if up else "DOWN 🔴"
     et_start = datetime.fromtimestamp(current_window, tz=ET)
     et_end = datetime.fromtimestamp(current_window + 300, tz=ET)
     et_str = f"{et_start.strftime('%I:%M %p')}-{et_end.strftime('%I:%M %p')} ET"
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] MARKET: btc-5m-{current_window} ({et_str})")
     # Probabilitas = win rate empiris bucket delta (>=15 sampel), else skor aturan
-    d_abs = abs((cp - op) / op * 100)
+    d_abs = abs(delta)
     b = bucket(d_abs)
     rows = [s for s in stats if s["bucket"] == b]
     if len(rows) >= 15:
@@ -229,11 +245,12 @@ def emit_signal(current_window, stats, tag):
     else:
         prob = confidence
         src = "aturan"
-    print(f"[{ts}] {tag}: {direction} (Prob: {prob:.1f}%){' [AI]' if ai_used else ''} [{src}]")
-    print(f"[{ts}] Prices: Open {op:.2f} -> Cur {cp:.2f}")
+    hold_txt = " [HOLD]" if held else ""
+    print(f"[{ts}] {tag}: {dir_txt} (Prob: {prob:.1f}%){' [AI]' if ai_used else ''}{hold_txt} [{src}]")
+    print(f"[{ts}] Prices: Open {op:.2f} -> Cur {cp:.2f} (delta {delta:+.3f}%)")
     print(f"[{ts}] Chart  : {sparkline(closes[-40:])}")
     print("-" * 50)
-    return (current_window, direction.startswith("UP"), d_abs)
+    return (current_window, up, d_abs)
 
 
 def main():
@@ -257,6 +274,7 @@ def main():
             if current_window != last_window:
                 last_window = current_window
                 first_done = second_done = False
+                window_up = None  # arah PREDIKSI window ini (acuan anti-whipsaw)
 
             # Verifikasi hasil window sebelumnya (kline final siap ~10s setelah tutup)
             if pending and current_window != pending[0] and time_into_window >= 10:
@@ -283,11 +301,12 @@ def main():
                 p = emit_signal(current_window, stats, "PREDIKSI")
                 if p:
                     pending = p  # fallback: kalau konfirmasi gagal, verifikasi pakai ini
+                    window_up = p[1]
                 first_done = True
 
             # Konfirmasi T-30s sebelum tutup (menimpa pending — ini keputusan final)
             if time_into_window >= TRIGGER_CONFIRM_SEC and not second_done:
-                p = emit_signal(current_window, stats, "KONFIRMASI")
+                p = emit_signal(current_window, stats, "KONFIRMASI", prev_up=window_up)
                 if p:
                     pending = p
                 second_done = True

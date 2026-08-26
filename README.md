@@ -53,14 +53,17 @@ delta = (current_price - window_open) / window_open * 100
 
 `current > EMA9` → skor +1, sebaliknya −1.
 
-Total skor > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|skor|/8 × 100%`.
+Total skor > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|skor|/8 × 100%`, **dibatasi maks 80%** — prediksi 1 menit tidak pernah layak klaim 100%.
+
+**Anti-whipsaw (HOLD):** jika KONFIRMASI (T-30s) berubah arah tapi `|delta| < 0.03%` (harga nyaris di open), arah **ditahan** mengikuti PREDIKSI dan confidence dibatasi 40%. Pembalikan tipis sering noise yang bisa balik lagi; flip hanya jika delta berlawanan **tegas** (≥ 0.03%).
 
 ---
 
 ## Akurasi & Verifikasi
 
 - Setelah window tutup, bot **memverifikasi** prediksi vs harga close aktual (`VERIFY: ... BENAR/SALAH`) dan menyimpan riwayat di `stats.json`.
-- Probabilitas yang dicetak = **win rate empiris** per bucket `|delta|` (tegas/kuat/sedang/tipis) setelah ≥ 15 sampel. Sebelum cukup sampel, memakai skor aturan.
+- Probabilitas yang dicetak = **win rate empiris** per bucket `|delta|` (tegas/kuat/sedang/tipis) setelah ≥ 15 sampel. Sebelum cukup sampel, memakai skor aturan (cap 80%).
+- `[HOLD]` di KONFIRMASI = arah PREDIKSI dipertahankan karena pembalikan tipis (< 0.03%) dianggap noise.
 - Mulai fresh: hapus `stats.json`. Riwayat menumpuk antar-restart.
 
 ```

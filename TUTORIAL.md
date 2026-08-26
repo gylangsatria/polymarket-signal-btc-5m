@@ -130,6 +130,10 @@ else:          score -= 1
 - AI dibatasi mempengaruhi confidence maksimal 70%.
 - Gagal/timeout → retry 1× → fallback ke sinyal aturan. Bot tidak pernah berhenti.
 
+### Anti-whipsaw
+
+KONFIRMASI (T-30s) **tidak langsung membalik arah** PREDIKSI: jika arah baru berlawanan tapi `|delta| < 0.03%`, arah ditahan (`[HOLD]`, confidence ≤ 40%). Harga yang nyaris menyentuh open bisa bolak-balik — flip hanya jika pembalikan tegas (≥ 0.03%).
+
 ---
 
 ## 7. Waktu & Zona (Penting)
