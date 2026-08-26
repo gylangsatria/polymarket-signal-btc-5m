@@ -406,6 +406,9 @@ def main():
                     print(f"[{ts}] TARGET: bid {bid:.2f} <= {trader.SELL_CUT_LOSS:.2f} — CUT-LOSS")
                     if do_sell(w, token_id, shares, reason="CUT-LOSS"):
                         position = None
+                else:
+                    print(f"[{ts}] POS: {direction} bid={bid:.2f} — hold "
+                          f"(sell jika >= {trader.SELL_BID_MIN} atau <= {trader.SELL_CUT_LOSS})")
 
             # Konfirmasi T-60s sebelum tutup (1 menit terakhir; menimpa pending — keputusan final)
             if time_into_window >= TRIGGER_CONFIRM_SEC and not second_done:

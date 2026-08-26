@@ -176,6 +176,13 @@ def trade(window_ts, up, prob=None):
             if reason:
                 print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} SKIP ({reason})")
                 return {"ok": False, "msg": "DRY-RUN SKIP", "reason": reason}
+            # Guard EV: harga masuk > keyakinan model -> beli rugi terjamin.
+            if prob is not None:
+                ask = get_best_ask(token_id)
+                if ask is not None and ask > prob / 100:
+                    print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} SKIP "
+                          f"(ask {ask:.2f} > prob {prob:.0f}% — EV negatif)")
+                    return {"ok": False, "msg": "DRY-RUN SKIP", "reason": "EV negatif"}
             print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} ${AMOUNT_USD:.2f} "
                   f"token={token_id} (market {market.id})")
             return {"ok": True, "msg": "DRY-RUN", "token_id": token_id}
@@ -196,6 +203,12 @@ def trade(window_ts, up, prob=None):
             reason = check_entry(token_id)
             if reason:
                 return {"ok": False, "msg": f"{slug} skip: {reason}"}
+            # Guard EV: beli @P butuh prob >= P*100 supaya EV >= 0.
+            # (Mode agresif percaya model -> bypass, di atas.)
+            if prob is not None:
+                ask = get_best_ask(token_id)
+                if ask is not None and ask > prob / 100:
+                    return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} > prob {prob:.0f}% (EV negatif)"}
         else:
             print(f"[{ts}] agresif: prob={prob:.1f}% >= TRADE_MIN_PROB={MIN_PROB} — langsung FOK tanpa guard harga")
 
