@@ -14,7 +14,7 @@ close_time    = window_ts + 300            # window tutup 5 menit kemudian
 market slug   = btc-5m-{window_ts}
 ```
 
-Bot tidur sampai **menit ke-2 window** (T-180s s/d T-1s), menghitung sinyal, mencetaknya, lalu **memverifikasi hasil saat window tutup** — win rate empiris dihitung dan dipakai sebagai probabilitas (kalibrasi per bucket delta).
+Bot memunculkan **2 sinyal per window**: **PREDIKSI** di menit ke-2 (T-180s) lalu **KONFIRMASI** di T-30s sebelum tutup. Setelah tutup, bot **memverifikasi hasil** — win rate empiris dipakai sebagai probabilitas (kalibrasi per bucket delta).
 
 ---
 
@@ -64,9 +64,13 @@ Total skor > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|skor|/8 ×
 - Mulai fresh: hapus `stats.json`. Riwayat menumpuk antar-restart.
 
 ```
-[07:57:12] SIGNAL: UP 🟢 (Prob: 62.3%) [empirik-tegas (18 sampel)]
+[07:57:12] PREDIKSI: UP 🟢 (Prob: 62.3%) [empirik-tegas (18 sampel)]
+[07:59:32] KONFIRMASI: UP 🟢 (Prob: 64.7%) [empirik-tegas (18 sampel)]
 [08:00:12] VERIFY: btc-5m-1787702100 BENAR (close 78510.00 vs open 78496.00) | win rate 61.1% (11/18)
 ```
+
+- Probabilitas dikalibrasi dari **hasil sinyal KONFIRMASI** (T-30s) — keputusan final.
+- `PREDIKSI` (T-180s) untuk aksi lebih awal; `KONFIRMASI` (T-30s) untuk memastikan.
 
 ---
 
@@ -159,6 +163,6 @@ docker compose up -d --build
 ## Pelajaran Kunci
 
 1. **Window delta adalah raja.** TA jangka pendek (EMA, RSI) sangat bising di skala 5 menit. Delta vs harga buka window adalah jawaban langsung atas pertanyaan market.
-2. **Timing masuk itu segalanya.** Menit ke-2 window (T-180s): hasil muncul 3 menit sebelum tutup — banyak margin token, tapi makin awal makin belum terkunci, jadi ikuti probabilitas empiris, bukan sekadar arah.
+2. **Timing masuk itu segalanya.** PREDIKSI di T-180s (margin besar, arah belum terkunci) → KONFIRMASI di T-30s (arah praktis terkunci). Bertindak pakai angka probabilitas empiris, bukan sekadar arah.
 3. **AI hanya pelengkap.** Jangan biarkan AI membalik sinyal saat delta sudah tegas — itu justru menambah noise.
 4. **Rate limit Binance itu nyata.** Bot me-retry otomatis; kalau sering gagal, kurangi frekuensi fetch.

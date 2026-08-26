@@ -25,8 +25,9 @@ AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini").strip()
 
 SPARK = "▁▂▃▄▅▆▇█"
 
-# Sinyal muncul di MENIT KE-2 window 5 menit (120 detik masuk, T-180s sebelum tutup).
-TRIGGER_SEC = 120
+# Dua sinyal per window: menit ke-2 (prediksi awal) + T-30s (konfirmasi).
+TRIGGER_FIRST_SEC = 120   # T-180s
+TRIGGER_CONFIRM_SEC = 270 # T-30s
 STATS_FILE = "stats.json"  # riwayat prediksi vs hasil aktual (win rate empiris)
 
 
@@ -204,12 +205,40 @@ def get_signal():
 
     return direction, confidence, open_price, cur_price, ai_used, df["close"].tolist()
 
+def emit_signal(current_window, stats, tag):
+    """Cetak sinyal + probabilitas. Return (window, up, |delta|) atau None."""
+    direction, confidence, op, cp, ai_used, closes = get_signal()
+    if not direction:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Signal failed (Binance error).")
+        return None
+    et_start = datetime.fromtimestamp(current_window, tz=ET)
+    et_end = datetime.fromtimestamp(current_window + 300, tz=ET)
+    et_str = f"{et_start.strftime('%I:%M %p')}-{et_end.strftime('%I:%M %p')} ET"
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}] MARKET: btc-5m-{current_window} ({et_str})")
+    # Probabilitas = win rate empiris bucket delta (>=15 sampel), else skor aturan
+    d_abs = abs((cp - op) / op * 100)
+    b = bucket(d_abs)
+    rows = [s for s in stats if s["bucket"] == b]
+    if len(rows) >= 15:
+        prob = sum(s["win"] for s in rows) / len(rows) * 100
+        src = f"empirik-{b} ({len(rows)} sampel)"
+    else:
+        prob = confidence
+        src = "aturan"
+    print(f"[{ts}] {tag}: {direction} (Prob: {prob:.1f}%){' [AI]' if ai_used else ''} [{src}]")
+    print(f"[{ts}] Prices: Open {op:.2f} -> Cur {cp:.2f}")
+    print(f"[{ts}] Chart  : {sparkline(closes[-40:])}")
+    print("-" * 50)
+    return (current_window, direction.startswith("UP"), d_abs)
+
+
 def main():
     print("Polymarket Signal Bot (No Wallet Mode) - Monitoring...")
     print("-----------------------------------------------------")
     
-    last_window = 0
-    pending = None  # (window_ts, prediksi_up, |delta| saat sinyal)
+    last_window = -1
+    pending = None  # (window_ts, prediksi_up, |delta| saat sinyal) — dari sinyal TERAKHIR
     stats = load_stats()
     if stats:
         wins = sum(s["win"] for s in stats)
@@ -220,6 +249,11 @@ def main():
             now = int(time.time())
             current_window = now - (now % 300)
             time_into_window = now % 300
+
+            # Window baru → reset penanda sinyal
+            if current_window != last_window:
+                last_window = current_window
+                first_done = second_done = False
 
             # Verifikasi hasil window sebelumnya (kline final siap ~10s setelah tutup)
             if pending and current_window != pending[0] and time_into_window >= 10:
@@ -241,34 +275,19 @@ def main():
                         print(f"[{ts}] VERIFY: btc-5m-{w} {mark} (close {final_p:.2f} vs open {open_p:.2f}) | win rate {wins/total*100:.1f}% ({wins}/{total})")
                         pending = None
 
-            # Sinyal dikirim di menit ke-2 window (T-180s s/d T-1s)
-            if time_into_window >= TRIGGER_SEC and current_window != last_window:
-                direction, confidence, op, cp, ai_used, closes = get_signal()
-                if direction:
-                    # Window epoch -> ET (auto DST via ZoneInfo)
-                    et_start = datetime.fromtimestamp(current_window, tz=ET)
-                    et_end = datetime.fromtimestamp(current_window + 300, tz=ET)
-                    et_str = f"{et_start.strftime('%I:%M %p')}-{et_end.strftime('%I:%M %p')} ET"
-                    ts = datetime.now().strftime("%H:%M:%S")
-                    print(f"[{ts}] MARKET: btc-5m-{current_window} ({et_str})")
-                    # Probabilitas = win rate empiris bucket delta (>=15 sampel), else skor aturan
-                    d_abs = abs((cp - op) / op * 100)
-                    b = bucket(d_abs)
-                    rows = [s for s in stats if s["bucket"] == b]
-                    if len(rows) >= 15:
-                        prob = sum(s["win"] for s in rows) / len(rows) * 100
-                        src = f"empirik-{b} ({len(rows)} sampel)"
-                    else:
-                        prob = confidence
-                        src = "aturan"
-                    print(f"[{ts}] SIGNAL: {direction} (Prob: {prob:.1f}%){' [AI]' if ai_used else ''} [{src}]")
-                    print(f"[{ts}] Prices: Open {op:.2f} -> Cur {cp:.2f}")
-                    print(f"[{ts}] Chart  : {sparkline(closes[-40:])}")
-                    print("-" * 50)
-                    last_window = current_window
-                    pending = (current_window, direction.startswith("UP"), d_abs)
-                else:
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Signal failed (Binance error).")
+            # Sinyal awal di menit ke-2 (T-180s)
+            if time_into_window >= TRIGGER_FIRST_SEC and not first_done:
+                p = emit_signal(current_window, stats, "PREDIKSI")
+                if p:
+                    pending = p  # fallback: kalau konfirmasi gagal, verifikasi pakai ini
+                first_done = True
+
+            # Konfirmasi T-30s sebelum tutup (menimpa pending — ini keputusan final)
+            if time_into_window >= TRIGGER_CONFIRM_SEC and not second_done:
+                p = emit_signal(current_window, stats, "KONFIRMASI")
+                if p:
+                    pending = p
+                second_done = True
             
             time.sleep(1)
         except Exception as e:
