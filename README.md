@@ -106,7 +106,8 @@ Saat `AUTO_TRADE=true`, bot mengeksekusi **satu market order per window** di CLO
 - Order memakai `FOK` (fill-or-kill): modal yang tidak terisi penuh di book dibatalkan, tidak ada posisi parsial yang menggantung.
 - **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas prediksi ≥ `TRADE_MIN_PROB` (default 60, persen) → langsung FOK, **lewati** guard `TRADE_MAX_ASK` (baik arah UP maupun DOWN). Guard harga hanya aktif saat probabilitas di bawah ambang.
 - **Recheck**: selama belum ada order dan belum KONFIRMASI, bot mengecek ulang probabilitas tiap 15 detik — begitu naik ke ≥ `TRADE_MIN_PROB`, langsung eksekusi tanpa menunggu menit terakhir.
-- **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap 15 detik. Jika ROI ≥ `SELL_ROI_MIN` (10%) → jual FOK, kunci profit lalu **bisa beli lagi** (scalping berulang sampai menit terakhir). Jika bid ≤ `SELL_CUT_LOSS` (0.40) → jual FOK, ambil sisa nilai alih-alih hangus 0. Saat KONFIRMASI berlawanan arah dengan posisi → cut-loss segera.
+- **Take-profit & cut-loss**: setelah posisi terbentuk, bot cek best bid tiap 15 detik. Jika ROI ≥ `SELL_ROI_MIN` (10%) → jual FOK, kunci profit lalu **bisa beli lagi** (scalping berulang sampai menit terakhir). Jika bid ≤ `SELL_CUT_LOSS` (0.40) → jual FOK, ambil sisa nilai, **dan berhenti entry di window itu** (1 rugi per window cukup). Saat KONFIRMASI berlawanan arah → cut-loss segera + stop entry.
+- **Anti-melawan-pasar**: entry hanya jika arah sinyal searah tren harga saat ini (UP saat harga naik, DOWN saat turun), dan tidak membeli token < `TRADE_MIN_ASK` (0.35) — token semurah itu = sisi yang pasar sudah yakin kalah.
 - `TRADE_DRY_RUN=true` → hanya mencetak rencana order (lookup market + token) tanpa eksekusi. Aman untuk uji coba sebelum live.
 
 **Dana tidak pernah di-withdraw.** Semua USDC dan token hasil beli tetap sebagai collateral di dalam Polymarket (default CLOB). Untuk mengecek posisi/saldo: buka polymarket.com atau gunakan `client.list_positions(...)` dari SDK.
@@ -157,6 +158,7 @@ TRADE_ON_URGENT=false             # true = eksekusi juga sinyal URGENT
 TRADE_DRY_RUN=true                # true = cetak rencana order, tanpa eksekusi
 TRADE_MAX_ASK=0.9                 # skip order jika best ask > ambang (harga masuk maksimal, jalur normal)
 TRADE_HARD_MAX_ASK=0.65           # batas keras semua mode: beli hanya jika ask <= ini (hindari 0.90+ = EV negatif)
+TRADE_MIN_ASK=0.35                # jangan beli token semurah ini (sisi yang pasar sudah yakin kalah)
 TRADE_AGGRESSIVE=true             # prob >= TRADE_MIN_PROB -> langsung beli (lewati TRADE_MAX_ASK)
 TRADE_MIN_PROB=75                 # ambang probabilitas mode agresif, dalam persen
 SELL_BID_MIN=0.95                 # take-profit: jual jika best bid >= ambang

@@ -60,6 +60,13 @@ try:
 except ValueError:
     HARD_MAX_ASK = 0.65
 
+# Harga masuk MINIMUM: skip jika best ask < ambang. Token semurah ini = sisi yang
+# pasar sudah yakin kalah — membeli di situ melawan konsensus pasar (hampir pasti hangus).
+try:
+    MIN_ASK_PRICE = float(os.getenv("TRADE_MIN_ASK", "0.35").strip() or 0.35)
+except ValueError:
+    MIN_ASK_PRICE = 0.35
+
 # Ambang probabilitas untuk mode agresif (TRADE_AGGRESSIVE=true), dalam persen (0-100).
 try:
     MIN_PROB = float(os.getenv("TRADE_MIN_PROB", "60").strip() or 60)
@@ -196,6 +203,10 @@ def trade(window_ts, up, prob=None):
                     print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} SKIP "
                           f"(ask {ask:.2f} > prob {prob:.0f}% — EV negatif)")
                     return {"ok": False, "msg": "DRY-RUN SKIP", "reason": "EV negatif"}
+                if ask is not None and ask < MIN_ASK_PRICE:
+                    print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} SKIP "
+                          f"(ask {ask:.2f} < TRADE_MIN_ASK={MIN_ASK_PRICE} — sisi kalah)")
+                    return {"ok": False, "msg": "DRY-RUN SKIP", "reason": "sisi hampir pasti kalah"}
             print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} ${AMOUNT_USD:.2f} "
                   f"token={token_id} (market {market.id})")
             return {"ok": True, "msg": "DRY-RUN", "token_id": token_id}
@@ -216,6 +227,9 @@ def trade(window_ts, up, prob=None):
         ask = get_best_ask(token_id)
         if ask is not None and ask > HARD_MAX_ASK:
             return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} > TRADE_HARD_MAX_ASK={HARD_MAX_ASK} (harga terlalu mahal — EV negatif)"}
+        # Batas MIN: token semurah ini hampir pasti kalah — jangan lawan pasar.
+        if ask is not None and ask < MIN_ASK_PRICE:
+            return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} < TRADE_MIN_ASK={MIN_ASK_PRICE} (sisi hampir pasti kalah)"}
 
         if not aggressive:
             reason = check_entry(token_id)

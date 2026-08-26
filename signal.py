@@ -324,6 +324,7 @@ def main():
                 window_up = None  # arah PREDIKSI window ini (acuan anti-whipsaw)
                 last_recheck = 0.0
                 position = None  # window baru — posisi lama selesai (jual/hangus/redeem)
+                stopped = False  # berhenti entry setelah 1 cut-loss di window ini
 
             # Verifikasi hasil window sebelumnya (kline final siap ~10s setelah tutup)
             if pending and current_window != pending[0] and time_into_window >= 10:
@@ -366,14 +367,22 @@ def main():
                     window_up = p[1]
                 first_done = True
 
-            # Entry dinamis: dari awal window, selama tidak pegang posisi & masih ada waktu,
-            # cek tiap recheck — beli jika prob bagus & harga cocok (guard HARD/EV di trader.py).
-            if (not position and 60 <= time_into_window <= 270
+            # Entry dinamis: dari awal window, selama tidak pegang posisi, belum kalah,
+            # & masih ada waktu — cek tiap recheck. Beli jika prob bagus & harga cocok
+            # (guard HARD/MIN/EV di trader.py) serta searah tren harga.
+            if (not position and not stopped and 60 <= time_into_window <= 270
                     and time.time() - last_recheck >= RECHECK_INTERVAL):
                 last_recheck = time.time()
-                direction, confidence, _, _, _, _, delta = get_signal(allow_ai=False)
+                direction, confidence, op, cp, _, _, _ = get_signal(allow_ai=False)
                 if direction:
-                    do_trade(current_window, direction == "UP", confidence)
+                    delta = (cp - op) / op * 100
+                    up = direction == "UP"
+                    # Jangan lawan tren: UP hanya jika harga naik, DOWN hanya jika turun.
+                    if (up and delta < 0) or (not up and delta > 0):
+                        ts = datetime.now().strftime("%H:%M:%S")
+                        print(f"[{ts}] SKIP entry {direction}: delta {delta:+.3f}% lawan arah — tunggu tren")
+                    else:
+                        do_trade(current_window, up, confidence)
 
             # Kelola posisi tiap recheck: TAKE-PROFIT jika ROI >= SELL_ROI_MIN,
             # CUT-LOSS jika bid <= SELL_CUT_LOSS (sisa nilai — jual daripada hangus 0).
@@ -395,6 +404,7 @@ def main():
                         print(f"[{ts}] TARGET: bid {bid:.2f} <= {trader.SELL_CUT_LOSS:.2f} — CUT-LOSS")
                         if do_sell(w, token_id, shares, reason="CUT-LOSS"):
                             position = None
+                            stopped = True  # stop entry: 1 rugi per window cukup
                     else:
                         print(f"[{ts}] POS: {direction} bid={bid:.2f} ROI {roi*100:.1f}% — hold "
                               f"(jual ROI >= {trader.SELL_ROI_MIN*100:.0f}% / cut-loss <= {trader.SELL_CUT_LOSS:.2f})")
@@ -414,6 +424,7 @@ def main():
                             print(f"[{ts}] KONFIRMASI {conf_dir} berlawanan posisi {pos_dir} — CUT-LOSS")
                             if do_sell(w, token_id, shares, reason="CUT-LOSS"):
                                 position = None
+                                stopped = True  # stop entry: jangan beli lagi setelah kalah
                 second_done = True
 
             time.sleep(1)
