@@ -259,6 +259,7 @@ def emit_signal(current_window, stats, tag, prev_up=None):
 
 def do_trade(current_window, up, prob=None):
     """Eksekusi auto-trade via trader.py. Return True jika order sukses."""
+    global position
     ts = datetime.now().strftime("%H:%M:%S")
     res = trader.trade(current_window, up, prob=prob)
     if res.get("ok"):
@@ -266,9 +267,25 @@ def do_trade(current_window, up, prob=None):
         extra = res.get("order_id", "")
         print(f"[{ts}] TRADE [{tag}]: {trader.SLUG_PREFIX}-{current_window} {'UP' if up else 'DOWN'}"
               + (f" orderID={extra[:18]}" if extra else ""))
+        # Simpan posisi untuk take-profit (hanya order nyata — DRY-RUN tanpa shares)
+        if res.get("token_id") and res.get("shares"):
+            position = (current_window, res["token_id"], res["shares"])
+        return True
     else:
         print(f"[{ts}] TRADE [SKIP]: {trader.SLUG_PREFIX}-{current_window} ({res.get('msg')})")
     return res.get("ok", False)
+
+
+def do_sell(window_ts, token_id, shares):
+    """Take-profit: jual posisi. Return True jika terisi."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    res = trader.sell(token_id, shares)
+    if res.get("ok"):
+        print(f"[{ts}] SELL [OK]: {trader.SLUG_PREFIX}-{window_ts} token={token_id[:12]} "
+              f"received=${res.get('received')}")
+        return True
+    print(f"[{ts}] SELL [SKIP]: {trader.SLUG_PREFIX}-{window_ts} ({res.get('msg')})")
+    return False
 
 
 def main():
@@ -280,6 +297,7 @@ def main():
 
     last_window = -1
     pending = None  # (window_ts, prediksi_up, |delta| saat sinyal) — dari sinyal TERAKHIR
+    position = None  # (window_ts, token_id, shares) — posisi untuk take-profit
     stats = load_stats()
     if stats:
         wins = sum(s["win"] for s in stats)
@@ -298,6 +316,7 @@ def main():
                 traded = False  # maksimal 1 order per window
                 window_up = None  # arah PREDIKSI window ini (acuan anti-whipsaw)
                 last_recheck = 0.0
+                position = None  # window baru — posisi lama selesai (jual/hangus/redeem)
 
             # Verifikasi hasil window sebelumnya (kline final siap ~10s setelah tutup)
             if pending and current_window != pending[0] and time_into_window >= 10:
@@ -364,6 +383,17 @@ def main():
                         ts = datetime.now().strftime("%H:%M:%S")
                         print(f"[{ts}] RECHECK: {'UP' if up else 'DOWN'} prob {prob:.1f}% >= {trader.MIN_PROB:.0f}% — eksekusi")
                         traded = do_trade(current_window, up, prob)
+
+            # Take-profit: jual posisi jika best bid >= SELL_BID_MIN (cek tiap recheck).
+            if position and time.time() - last_recheck >= RECHECK_INTERVAL:
+                last_recheck = time.time()
+                w, token_id, shares = position
+                bid = trader.get_best_bid(token_id)
+                if bid is not None and bid >= trader.SELL_BID_MIN:
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    print(f"[{ts}] TARGET: bid {bid:.2f} >= {trader.SELL_BID_MIN:.2f} — jual")
+                    if do_sell(w, token_id, shares):
+                        position = None
 
             # Konfirmasi T-60s sebelum tutup (1 menit terakhir; menimpa pending — keputusan final)
             if time_into_window >= TRIGGER_CONFIRM_SEC and not second_done:

@@ -59,6 +59,12 @@ try:
 except ValueError:
     MIN_PROB = 60
 
+# Take-profit: jual otomatis jika best bid token >= ambang ini.
+try:
+    SELL_BID_MIN = float(os.getenv("SELL_BID_MIN", "0.95").strip() or 0.95)
+except ValueError:
+    SELL_BID_MIN = 0.95
+
 # Prefix slug market Polymarket: {asset}-updown-{duration}-{window_start_ts}
 # (diverifikasi dari gamma-api: "btc-updown-5m-1787709300" = window 01:55-02:00 UTC)
 SLUG_PREFIX = "btc-updown-5m"
@@ -110,6 +116,15 @@ def get_best_ask(token_id):
     b = requests.get(f"https://clob.polymarket.com/book?token_id={token_id}", timeout=10).json()
     asks = b.get("asks") or []
     return min(float(a["price"]) for a in asks) if asks else None
+
+
+def get_best_bid(token_id):
+    """Best bid dari CLOB order book. None jika tidak ada pembeli."""
+    import requests
+
+    b = requests.get(f"https://clob.polymarket.com/book?token_id={token_id}", timeout=10).json()
+    bids = b.get("bids") or []
+    return max(float(x["price"]) for x in bids) if bids else None
 
 
 def check_entry(token_id):
@@ -199,6 +214,31 @@ def trade(window_ts, up, prob=None):
             "order_id": resp.order_id,
             "status": resp.status,
             "spent": str(resp.making_amount),
+            "token_id": token_id,
+            "shares": str(resp.taking_amount),  # BUY: taking_amount = shares diterima
         }
+    except Exception as e:
+        return {"ok": False, "msg": f"{type(e).__name__}: {e}"}
+
+
+def sell(token_id, shares):
+    """Jual semua shares token (take-profit) via FOK. Return {ok, ...}.
+
+    SELL: taking_amount = USDC diterima.
+    """
+    ts = time.strftime("%H:%M:%S")
+    try:
+        client = get_client()
+        resp = client.place_market_order(
+            token_id=token_id,
+            side="SELL",
+            shares=str(shares),
+            order_type="FOK",
+        )
+        if not resp.ok:
+            return {"ok": False, "msg": getattr(resp, "message", "sell ditolak")}
+        print(f"[{ts}] SELL: token={token_id[:12]} shares={shares} status={resp.status} "
+              f"received=${resp.taking_amount}")
+        return {"ok": True, "status": resp.status, "received": str(resp.taking_amount)}
     except Exception as e:
         return {"ok": False, "msg": f"{type(e).__name__}: {e}"}
