@@ -155,7 +155,8 @@ AUTO_TRADE=false                  # true untuk mengaktifkan order otomatis
 TRADE_AMOUNT_USD=5.0              # nominal per window (USD)
 TRADE_ON_URGENT=false             # true = eksekusi juga sinyal URGENT
 TRADE_DRY_RUN=true                # true = cetak rencana order, tanpa eksekusi
-TRADE_MAX_ASK=0.9                 # skip order jika best ask > ambang (harga masuk maksimal)
+TRADE_MAX_ASK=0.9                 # skip order jika best ask > ambang (harga masuk maksimal, jalur normal)
+TRADE_HARD_MAX_ASK=0.65           # batas keras semua mode: beli hanya jika ask <= ini (hindari 0.90+ = EV negatif)
 TRADE_AGGRESSIVE=true             # prob >= TRADE_MIN_PROB -> langsung beli (lewati TRADE_MAX_ASK)
 TRADE_MIN_PROB=75                 # ambang probabilitas mode agresif, dalam persen
 SELL_BID_MIN=0.95                 # take-profit: jual jika best bid >= ambang

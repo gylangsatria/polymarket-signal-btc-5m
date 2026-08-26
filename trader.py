@@ -53,6 +53,13 @@ try:
 except ValueError:
     MAX_ASK_PRICE = 0.6
 
+# Harga masuk HARD — berlaku SEMUA mode (termasuk agresif): skip jika best ask > ambang.
+# Mencegah beli 0.90+ yang EV negatif: menang cuma +3%, kalah -100%.
+try:
+    HARD_MAX_ASK = float(os.getenv("TRADE_HARD_MAX_ASK", "0.65").strip() or 0.65)
+except ValueError:
+    HARD_MAX_ASK = 0.65
+
 # Ambang probabilitas untuk mode agresif (TRADE_AGGRESSIVE=true), dalam persen (0-100).
 try:
     MIN_PROB = float(os.getenv("TRADE_MIN_PROB", "60").strip() or 60)
@@ -198,6 +205,11 @@ def trade(window_ts, up, prob=None):
         token_id = pick_token_id(market, up)
         if not token_id:
             return {"ok": False, "msg": f"outcome '{side_txt}' tidak punya token id ({slug})"}
+
+        # Batas HARD: semua mode (termasuk agresif) skip jika harga masuk terlalu mahal.
+        ask = get_best_ask(token_id)
+        if ask is not None and ask > HARD_MAX_ASK:
+            return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} > TRADE_HARD_MAX_ASK={HARD_MAX_ASK} (harga terlalu mahal — EV negatif)"}
 
         if not aggressive:
             reason = check_entry(token_id)
