@@ -116,7 +116,7 @@ Saat `AUTO_TRADE=true`, bot mengeksekusi market order **FOK** (fill-or-kill) di 
 - **Entry dinamis**: mulai menit ke-1 (60s) sampai menit ke-4,5 (270s), bot mengecek tiap `RECHECK_INTERVAL` detik (default 5) — masuk begitu probabilitas & harga cocok, tanpa harus menunggu PREDIKSI. Tidak perlu order parsial menggantung.
 - **Guard harga 3 lapis** (semua cek best ask CLOB):
   - `TRADE_MAX_ASK` (0.6) — jalur normal: skip jika harga masuk di atas ambang.
-  - `TRADE_HARD_MAX_ASK` (0.65) — **keras, berlaku SEMUA mode termasuk agresif**: beli hanya jika ask ≤ ini. Mencegah entry 0.70–0.99 yang EV negatif (menang cuma +3%, kalah −100%).
+  - `TRADE_HARD_MAX_ASK` (0.70) — **keras, berlaku SEMUA mode termasuk agresif**: beli hanya jika ask ≤ ini. Mencegah entry 0.75–0.99 yang EV negatif (untung kecil, kalah −100%).
   - `TRADE_MIN_ASK` (0.35) — jangan beli token semurah ini (sisi yang pasar sudah yakin kalah).
 - **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas ≥ `TRADE_MIN_PROB` (75) → langsung FOK, **lewati** `TRADE_MAX_ASK` — tapi tetap tunduk `TRADE_HARD_MAX_ASK` & `TRADE_MIN_ASK`.
 - **Anti-melawan-pasar**: entry hanya jika arah sinyal **searah tren harga saat ini** (UP saat harga naik, DOWN saat turun); kalau melawan tren, tunggu.
@@ -175,7 +175,7 @@ TRADE_AMOUNT_USD=1.0              # nominal per window (USD)
 TRADE_ON_URGENT=false             # true = eksekusi juga sinyal URGENT
 TRADE_DRY_RUN=true                # true = cetak rencana order, tanpa eksekusi
 TRADE_MAX_ASK=0.6                 # jalur normal: skip jika best ask > ambang
-TRADE_HARD_MAX_ASK=0.65           # batas keras SEMUA mode (termasuk agresif): beli hanya jika ask <= ini
+TRADE_HARD_MAX_ASK=0.70           # batas keras SEMUA mode (termasuk agresif): beli hanya jika ask <= ini
 TRADE_MIN_ASK=0.35                # jangan beli token semurah ini (sisi yang pasar sudah yakin kalah)
 TRADE_AGGRESSIVE=true             # prob >= TRADE_MIN_PROB -> langsung beli (lewati TRADE_MAX_ASK)
 TRADE_MIN_PROB=75                 # ambang probabilitas mode agresif, dalam persen
@@ -220,7 +220,7 @@ docker compose up -d --build
 | -------------------------- | --------------------------------------------------------- |
 | `Failed: api.binance.com` dkk | Normal jika jaringan memblokir domain itu. Mirror `data-api.binance.vision` sudah **diprioritaskan pertama** sejak 2026 — sukses tanpa log error. |
 | `[AI] retry` di log        | Normal — model reasoning kadang timeout, bot otomatis retry sekali lalu fallback. |
-| `TRADE [SKIP] ... harga terlalu mahal — EV negatif` | Best ask > `TRADE_HARD_MAX_ASK` (0.65). Bot sengaja menolak — bayar 0.70–0.99 untuk untung cuma 3-40% tapi rugi 100% adalah EV negatif. |
+| `TRADE [SKIP] ... harga terlalu mahal — EV negatif` | Best ask > `TRADE_HARD_MAX_ASK` (0.70). Bot sengaja menolak — bayar 0.75–0.99 untuk untung kecil tapi rugi 100% adalah EV negatif. |
 | `TRADE [SKIP] ... not enough balance / allowance` | Saldo deposit wallet Polymarket < `TRADE_AMOUNT_USD`. Top-up USDC di polymarket.com atau turunkan nominal di `.env`. |
 | `SKIP entry ... lawan arah` | Prediksi melawan tren harga saat ini — bot menunggu sampai searah. |
 | `[AUTO_TRADE, ...]` di log vs `[signal-only]` | Mode ditentukan `AUTO_TRADE` di `.env` (true/false). |
@@ -231,7 +231,7 @@ docker compose up -d --build
 ## FAQ
 
 ### 1. Kenapa bot jarang trade / sering `TRADE [SKIP]`?
-Guard harga bekerja. Log `ask 0.82 > TRADE_HARD_MAX_ASK=0.65` berarti token termurah yang tersedia **0.82** — bot menolak karena bayar 0.82 untuk menang cuma +18% tapi kalah −100% (EV negatif). Bot hanya masuk di harga wajar (≤ 0.65) + searah tren. Lebih jarang trade tapi tiap trade punya peluang untung — itu disengaja.
+Guard harga bekerja. Log `ask 0.82 > TRADE_HARD_MAX_ASK=0.70` berarti token termurah yang tersedia **0.82** — bot menolak karena bayar 0.82 untuk menang cuma +18% tapi kalah −100% (EV negatif). Bot hanya masuk di harga wajar (≤ 0.70) + searah tren. Lebih jarang trade tapi tiap trade punya peluang untung — itu disengaja.
 
 ### 2. Kenapa `TRADE [SKIP]: ask 0.62 > prob 50% (EV negatif)`?
 Guard EV jalur normal: harga 0.62 lebih mahal dari keyakinan model (50%) — membeli itu rugi terjamin secara statistik. Skip benar.

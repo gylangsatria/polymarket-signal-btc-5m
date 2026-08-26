@@ -57,11 +57,11 @@ except ValueError:
     MAX_ASK_PRICE = 0.6
 
 # Harga masuk HARD — berlaku SEMUA mode (termasuk agresif): skip jika best ask > ambang.
-# Mencegah beli 0.90+ yang EV negatif: menang cuma +3%, kalah -100%.
+# Mencegah beli 0.75+ yang EV negatif: menang cuma +25-30%, kalah -100%.
 try:
-    HARD_MAX_ASK = float(os.getenv("TRADE_HARD_MAX_ASK", "0.65").strip() or 0.65)
+    HARD_MAX_ASK = float(os.getenv("TRADE_HARD_MAX_ASK", "0.70").strip() or 0.70)
 except ValueError:
-    HARD_MAX_ASK = 0.65
+    HARD_MAX_ASK = 0.70
 
 # Harga masuk MINIMUM: skip jika best ask < ambang. Token semurah ini = sisi yang
 # pasar sudah yakin kalah — membeli di situ melawan konsensus pasar (hampir pasti hangus).
