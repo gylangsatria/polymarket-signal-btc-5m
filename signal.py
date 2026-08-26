@@ -395,11 +395,12 @@ def main():
                     window_up = p[1]
                 first_done = True
 
-            # Entry dinamis: dari awal window, selama tidak pegang posisi, belum kalah,
-            # & masih ada waktu — cek tiap recheck. Beli jika prob bagus & harga cocok
-            # (guard HARD/MIN/EV di trader.py) serta searah tren harga.
+            # Entry dinamis: SETELAH PREDIKSI dicetak (menit ke-2, 120s), selama tidak
+            # pegang posisi, belum kalah, & masih ada waktu — cek tiap recheck. Beli jika
+            # prob bagus & harga cocok (guard HARD/MIN/EV di trader.py) serta searah tren.
+            # Mulai di 120s: tidak beli sebelum ada hasil prediksi.
             # Hanya aktif di mode AUTO-TRADE (AUTO_TRADE=true); signal-only = prediksi saja.
-            if (not position and not stopped and 60 <= time_into_window <= 270
+            if (not position and not stopped and 120 <= time_into_window <= 270
                     and time.time() - last_recheck >= RECHECK_INTERVAL):
                 last_recheck = time.time()
                 direction, confidence, op, cp, _, _, _ = get_signal(allow_ai=False)

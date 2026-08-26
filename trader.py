@@ -218,13 +218,13 @@ def trade(window_ts, up, prob=None):
             if reason:
                 print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} SKIP ({reason})")
                 return {"ok": False, "msg": "DRY-RUN SKIP", "reason": reason}
-            # Guard EV: harga masuk > keyakinan model -> beli rugi terjamin.
+            # Guard EV: harga masuk >= keyakinan model -> EV tidak positif (tidak ada margin salah).
             if prob is not None:
                 ask = get_best_ask(token_id)
-                if ask is not None and ask > prob / 100:
+                if ask is not None and ask >= prob / 100:
                     print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} SKIP "
-                          f"(ask {ask:.2f} > prob {prob:.0f}% — EV negatif)")
-                    return {"ok": False, "msg": "DRY-RUN SKIP", "reason": "EV negatif"}
+                          f"(ask {ask:.2f} >= prob {prob:.0f}% — EV tidak positif)")
+                    return {"ok": False, "msg": "DRY-RUN SKIP", "reason": "EV tidak positif"}
                 if ask is not None and ask < MIN_ASK_PRICE:
                     print(f"[{ts}] [DRY-RUN] {slug} BUY {side_txt} SKIP "
                           f"(ask {ask:.2f} < TRADE_MIN_ASK={MIN_ASK_PRICE} — sisi kalah)")
@@ -253,12 +253,12 @@ def trade(window_ts, up, prob=None):
         if ask is not None and ask < MIN_ASK_PRICE:
             return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} < TRADE_MIN_ASK={MIN_ASK_PRICE} (sisi hampir pasti kalah)"}
 
-        # Guard EV adaptif — berlaku SEMUA mode (termasuk agresif): jangan pernah bayar
-        # lebih dari keyakinan model. EV = prob% - ask; bayar @P butuh prob >= P supaya EV >= 0.
-        # Ini yang membuat harga 0.7-0.85 tetap bisa dibeli saat model yakin (prob >= ask%),
-        # tanpa pernah beli EV negatif.
-        if prob is not None and ask is not None and ask > prob / 100:
-            return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} > prob {prob:.0f}% (EV negatif)"}
+        # Guard EV adaptif — berlaku SEMUA mode (termasuk agresif): bayar HARUS lebih kecil
+        # dari keyakinan model (EV > 0). EV = prob% - ask; ask == prob berarti EV 0
+        # (tidak ada margin untuk salah) -> tolak. Ini yang membuat harga 0.7-0.85 tetap
+        # bisa dibeli saat model yakin (prob > ask%), tanpa pernah beli EV <= 0.
+        if prob is not None and ask is not None and ask >= prob / 100:
+            return {"ok": False, "msg": f"{slug} skip: ask {ask:.2f} >= prob {prob:.0f}% (EV tidak positif)"}
 
         if not aggressive:
             reason = check_entry(token_id)

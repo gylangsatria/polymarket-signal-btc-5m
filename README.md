@@ -115,11 +115,11 @@ Ubah di `.env` lalu `docker compose up -d` (tanpa rebuild). Di log, judul bot me
 Saat `AUTO_TRADE=true`, bot mengeksekusi market order **FOK** (fill-or-kill) di CLOB Polymarket lewat SDK resmi `polymarket-client`:
 
 - **Sinyal UP** → beli token **Up** (`btc-updown-5m-{window}`), **sinyal DOWN** → beli token **Down**.
-- **Entry dinamis**: mulai menit ke-1 (60s) sampai menit ke-4,5 (270s), bot mengecek tiap `RECHECK_INTERVAL` detik (default 5) — masuk begitu probabilitas & harga cocok, tanpa harus menunggu PREDIKSI. Tidak perlu order parsial menggantung.
+- **Entry dinamis**: mulai saat PREDIKSI dicetak (menit ke-2, 120s) sampai menit ke-4,5 (270s), bot mengecek tiap `RECHECK_INTERVAL` detik (default 5) — tidak ada order sebelum hasil prediksi. Masuk begitu probabilitas & harga cocok. Tidak perlu order parsial menggantung.
 - **Guard harga adaptif (EV≥0, semua mode)**:
   - `TRADE_MIN_PROB_ENTRY` (50) — **lantai keyakinan mutlak**: prob < 50% tidak pernah masuk, jalur mana pun (model ragu = sering salah arah).
   - `TRADE_HARD_MAX_ASK` (0.85) — ceiling mutlak: tidak pernah bayar lebih dari 85¢.
-  - **Guard EV**: tidak pernah bayar lebih dari keyakinan model — `ask ≤ prob%` (EV ≥ 0). Harga 0.70–0.85 boleh dibeli **hanya jika model yakin ≥ itu**; harga 0.85–0.99 dengan prob 90% = EV +5% (layak), harga 0.95 dengan prob 80% = EV −15% (ditolak).
+  - **Guard EV**: bayar harus **lebih kecil** dari keyakinan model — `ask < prob%` (EV > 0, ada margin untuk salah). Harga 0.70–0.85 boleh dibeli **hanya jika model yakin di atasnya**; `ask == prob` (EV 0) ditolak.
   - `TRADE_MIN_ASK` (0.35) — jangan beli token semurah ini (sisi yang pasar sudah yakin kalah).
 - **Mode agresif** (`TRADE_AGGRESSIVE=true`): jika probabilitas ≥ `TRADE_MIN_PROB` (75) → langsung FOK, **lewati** `TRADE_MAX_ASK` — tapi **tetap tunduk** lantai `TRADE_MIN_PROB_ENTRY`, ceiling `TRADE_HARD_MAX_ASK`, guard EV (`ask ≤ prob%`), & `TRADE_MIN_ASK`.
 - **Anti-melawan-pasar**: entry hanya jika arah sinyal **searah tren harga saat ini** (UP saat harga naik, DOWN saat turun); kalau melawan tren, tunggu.
