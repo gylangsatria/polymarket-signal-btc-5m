@@ -45,6 +45,18 @@ python-dotenv>=1.0.0 # read .env
 polymarket-client    # Official Polymarket CLOB SDK (auto-trade)
 ```
 
+### Tech Stack
+
+| Layer            | Technology                                                       |
+| ---------------- | ---------------------------------------------------------------- |
+| **Language**     | Python 3.11                                                      |
+| **Market data**  | Binance REST API (real-time BTC price & kline)                   |
+| **Analysis**     | pandas — kline, window delta, EMA 9, Wilson estimation           |
+| **AI tiebreaker** | OpenAI-compatible endpoint (`AI_API_KEY`/`AI_BASE_URL`) — optional |
+| **Trading**      | Polymarket CLOB via official `polymarket-client` SDK (FOK market order) |
+| **Runtime**      | Docker + docker-compose (`network_mode: host`)                   |
+| **Config**       | `.env` managed through `config.py` (interactive validation)      |
+
 ---
 
 ## Signal Strategy
@@ -66,7 +78,7 @@ delta = (current_price - window_open) / window_open * 100
 
 `current > EMA9` → score +1, otherwise −1.
 
-Total score > 0 → **UP ������**, < 0 → **DOWN ������**. Confidence = `|score|/8 × 100%`, **capped at max 80%** — a 1-minute prediction never deserves a 100% claim.
+Total score > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|score|/8 × 100%`, **capped at max 80%** — a 1-minute prediction never deserves a 100% claim.
 
 **Anti-whipsaw (HOLD):** if CONFIRMATION (T-60s) changes direction but `|delta| < 0.03%` (price near open), the direction is **held** from the PREDICTION and confidence is capped at 40%. Small reversals are often noise that can flip back; only flip if delta is **decisively** opposite (≥ 0.03%).
 
