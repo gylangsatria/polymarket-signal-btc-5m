@@ -2,6 +2,17 @@
 
 Signal bot for Polymarket "BTC Up or Down" (5-minute) binary market. The bot reads real-time BTC prices from Binance, performs technical analysis + AI tiebreaker, and **prints UP/DOWN signals** before the Polymarket 5-minute window closes. With `AUTO_TRADE=true`, the CONFIRMATION signal (final decision) is **instantly executed as a market order on the Polymarket CLOB** â€” USDC funds and positions remain as collateral on Polymarket, **never withdrawn to an external wallet**.
 
+## âš ï¸ Risk Warning & Disclaimer
+
+**Read before using this bot.**
+
+- **Not financial advice.** This bot is only an analysis/automation tool â€” not investment advice, not a profit guarantee. All trading decisions rest with you.
+- **Past performance â‰  future results.** Displayed statistics (win rate, probabilities, etc.) are merely empirical historical data. No guarantee of correct signals going forward. Beware of the **gambler's fallacy** â€” a streak of wins/losses **does not change** the probability of the next outcome; each window is independent.
+- **DYOR (Do Your Own Research).** Study how Polymarket works â€” contracts, fees, and market mechanics â€” before staking real money.
+- **Don't bet beyond your means.** 5-minute binary markets are extremely volatile; positions can go to zero. Use only funds you can afford to lose entirely. Never chase losses; set your own limits and stop when out of control.
+- **All risk & loss are your responsibility**, not the bot author's. The bot is used **at your own risk** and discretion.
+
+
 ---
 
 ## How It Works
@@ -55,7 +66,7 @@ delta = (current_price - window_open) / window_open * 100
 
 `current > EMA9` â†’ score +1, otherwise âˆ’1.
 
-Total score > 0 â†’ **UP í ½í¿¢**, < 0 â†’ **DOWN í ½í´´**. Confidence = `|score|/8 Ã— 100%`, **capped at max 80%** â€” a 1-minute prediction never deserves a 100% claim.
+Total score > 0 â†’ **UP ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½**, < 0 â†’ **DOWN ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½**. Confidence = `|score|/8 Ã— 100%`, **capped at max 80%** â€” a 1-minute prediction never deserves a 100% claim.
 
 **Anti-whipsaw (HOLD):** if CONFIRMATION (T-60s) changes direction but `|delta| < 0.03%` (price near open), the direction is **held** from the PREDICTION and confidence is capped at 40%. Small reversals are often noise that can flip back; only flip if delta is **decisively** opposite (â‰¥ 0.03%).
 
@@ -119,4 +130,17 @@ Market order that only executes if the entire nominal is filled immediately; oth
 1. **Window delta is king.** Short-term TA (EMA, RSI) is very noisy on a 5-minute scale. Delta vs window open price is the direct answer to the market's question.
 2. **Entry timing is everything.** PREDICTION at T-180s (large margin, direction not yet locked) â†’ CONFIRMATION at T-60s (last 1 minute, direction more locked). Act based on empirical probability numbers, not just direction.
 3. **AI is only supplementary.** Don't let AI flip the signal when delta is already decisive â€” it just adds noise.
+---
+
+## ðŸ’› Donations
+
+This bot is free and open source. If it helps you, you may support the developer with a donation (optional â€” the bot works fully even without one):
+
+```
+Network : Polygon  (MATIC / USDC)
+Address : 0xc81d0b32455ae87f73b145a71a7d87f57937427f
+```
+
+> Make sure to select the **Polygon** network when sending so the funds arrive correctly.
+
 4. **Binance rate limits are real.** Bot retries automatically; if it fails often, reduce fetch frequency.

@@ -2,6 +2,18 @@
 
 Signal bot untuk market binary Polymarket "BTC Up or Down" (5 menit). Bot membaca harga BTC real-time dari Binance, menjalankan analisis teknikal + AI tiebreaker, lalu **mencetak sinyal UP/DOWN** sebelum window 5-menit Polymarket ditutup. Dengan `AUTO_TRADE=true`, sinyal KONFIRMASI (keputusan final) **langsung dieksekusi sebagai market order di Polymarket CLOB** â€” dana USDC & posisi tetap sebagai collateral di Polymarket, **tidak pernah ditarik ke wallet eksternal**.
 
+## âš ï¸ Peringatan Risiko & Disclaimer
+
+**Baca sebelum menggunakan bot ini.**
+
+- **Bukan saran keuangan.** Bot ini hanyalah alat analisis/otomasi â€” bukan nasihat investasi, bukan jaminan profit. Semua keputusan trading berada di tangan Anda.
+- **Data masa lalu â‰  jaminan masa depan.** Statistik yang ditampilkan (win rate, probabilitas, dst.) adalah data historis empiris belaka. Tidak ada garansi sinyal BENAR di periode berikutnya. Hati-hati dengan **kesalahan penjudi (gambler's fallacy)** â€” kemenangan/kekalahan beruntun **tidak mengubah** probabilitas hasil berikutnya; setiap window bersifat independen.
+- **DYOR (Do Your Own Research).** Pelajari cara kerja Polymarket, kontrak, biaya, dan mekanisme pasar sebelum memasang uang sungguhan.
+- **Jangan terlena.** Trading binary market 5 menit sangat fluktuatif; posisi bisa hangus total. Pakai hanya dana yang sanggup Anda rugikan seluruhnya. Jangan mengejar kerugian (chasing), tetapkan batas diri sendiri, dan berhenti bila sudah di luar kendali.
+- **Segala risiko & kerugian adalah tanggung jawab Anda**, bukan tanggung jawab pembuat bot. Bot dipakai **atas risiko sendiri** dan kebijaksanaan masing-masing.
+
+
+
 ---
 
 ## Cara Kerja
@@ -55,7 +67,7 @@ delta = (current_price - window_open) / window_open * 100
 
 `current > EMA9` â†’ skor +1, sebaliknya âˆ’1.
 
-Total skor > 0 â†’ **UP í ½í¿¢**, < 0 â†’ **DOWN í ½í´´**. Confidence = `|skor|/8 Ã— 100%`, **dibatasi maks 80%** â€” prediksi 1 menit tidak pernah layak klaim 100%.
+Total skor > 0 â†’ **UP ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½**, < 0 â†’ **DOWN ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½**. Confidence = `|skor|/8 Ã— 100%`, **dibatasi maks 80%** â€” prediksi 1 menit tidak pernah layak klaim 100%.
 
 **Anti-whipsaw (HOLD):** jika KONFIRMASI (T-60s) berubah arah tapi `|delta| < 0.03%` (harga nyaris di open), arah **ditahan** mengikuti PREDIKSI dan confidence dibatasi 40%. Pembalikan tipis sering noise yang bisa balik lagi; flip hanya jika delta berlawanan **tegas** (â‰¥ 0.03%).
 
@@ -68,4 +80,17 @@ Total skor > 0 â†’ **UP í ½í¿¢**, < 0 â†’ **DOWN í ½í´´**. Confidence = `|skor|/
 - Kalibrasi: bucket `|delta|` (tegas/kuat/sedang/tipis) dipakai jika â‰¥ 8 sampel; kalau belum cukup, **pooling semua sampel** (lebih stabil); tanpa sampel sama sekali â†’ skor aturan.
 - Probabilitas yang sama dipakai untuk **sinyal cetak DAN keputusan trade** (entry dinamis) â€” konsisten, tidak overconfident.
 - `[HOLD]` di KONFIRMASI = arah PREDIKSI dipertahankan karena pembalikan tipis (< 0.03%) dianggap noise.
+---
+
+## ðŸ’› Donasi
+
+Bot ini gratis & berbasis sumber terbuka (open source). Jika aplikasi ini membantu, Anda boleh mendukung pengembangnya lewat donasi (sukarela â€” tanpa donasi pun bot tetap berfungsi penuh):
+
+```
+Jaringan : Polygon  (MATIC / USDC)
+Alamat   : 0xc81d0b32455ae87f73b145a71a7d87f57937427f
+```
+
+> Pastikan memilih jaringan **Polygon** saat mengirim agar dana masuk dengan benar.
+
 - Mulai fresh: hapus `stats.json`. Riwayat menumpuk antar-restart.
