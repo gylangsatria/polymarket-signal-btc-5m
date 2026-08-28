@@ -46,6 +46,18 @@ python-dotenv>=1.0.0 # baca .env
 polymarket-client    # SDK resmi Polymarket CLOB (auto-trade)
 ```
 
+### Tech Stack
+
+| Lapisan           | Teknologi                                                             |
+| ----------------- | -------------------------------------------------------------------- |
+| **Bahasa**        | Python 3.11                                                          |
+| **Data pasar**    | Binance REST API (harga & kline BTC real-time)                       |
+| **Analisis**      | pandas — kline, window delta, EMA 9, estimasi Wilson                 |
+| **AI tiebreaker** | Endpoint OpenAI-compatible (`AI_API_KEY`/`AI_BASE_URL`) — opsional   |
+| **Trading**       | Polymarket CLOB via SDK resmi `polymarket-client` (market order FOK) |
+| **Runtime**       | Docker + docker-compose (`network_mode: host`)                       |
+| **Konfigurasi**   | `.env` dikelola lewat `config.py` (validasi interaktif)              |
+
 ---
 
 ## Strategi Sinyal
@@ -67,7 +79,7 @@ delta = (current_price - window_open) / window_open * 100
 
 `current > EMA9` → skor +1, sebaliknya −1.
 
-Total skor > 0 → **UP ������**, < 0 → **DOWN ������**. Confidence = `|skor|/8 × 100%`, **dibatasi maks 80%** — prediksi 1 menit tidak pernah layak klaim 100%.
+Total skor > 0 → **UP 🟢**, < 0 → **DOWN 🔴**. Confidence = `|skor|/8 × 100%`, **dibatasi maks 80%** — prediksi 1 menit tidak pernah layak klaim 100%.
 
 **Anti-whipsaw (HOLD):** jika KONFIRMASI (T-60s) berubah arah tapi `|delta| < 0.03%` (harga nyaris di open), arah **ditahan** mengikuti PREDIKSI dan confidence dibatasi 40%. Pembalikan tipis sering noise yang bisa balik lagi; flip hanya jika delta berlawanan **tegas** (≥ 0.03%).
 
