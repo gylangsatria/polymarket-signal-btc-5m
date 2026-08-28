@@ -21,8 +21,8 @@ Panduan lengkap setup, konfigurasi AI, dan menjalankan bot sinyal BTC Up/Down. B
 
 - Python 3.9+ (wajib untuk modul `zoneinfo`).
 - Akses internet ke `data-api.binance.vision` (atau api Binance lainnya).
-- (Opsional) API key AI — mis. dari **9router** dengan model `coding-fast` dan base URL `https://ai-gateway.gylang.my.id/v1`.
-- (Opsional) Docker + Docker Compose untuk menjalankan via container.
+- (Opsional) API key AI — mis. dari **9router** dengan model `coding-fast` dan base URL `https://api.your-gateway.example/v1`.
+- (Optional) Docker + Docker Compose untuk menjalankan via container.
 
 ---
 
@@ -46,7 +46,7 @@ Isi `.env`:
 ```env
 # AI API (9router / coding-fast)
 AI_API_KEY=sk-...ganti-dengan-api-key-anda...
-AI_BASE_URL=https://ai-gateway.gylang.my.id/v1
+AI_BASE_URL=https://api.your-gateway.example/v1
 AI_MODEL=coding-fast
 ```
 
@@ -98,9 +98,9 @@ docker compose down
 
 ```
 [07:59:45] MARKET: btc-updown-5m-1787702100 (07:55 PM-08:00 PM ET)
-[07:59:45] PREDIKSI: UP 🟢 (Prob: 75.0%) [aturan]
+[07:59:45] PREDIKSI: UP ������ (Prob: 75.0%) [aturan]
 [07:59:45] Prices: Open 78496.00 -> Cur 78510.00
-[07:59:45] Chart  : █▇▇▆▆▆▅▅▄▄▄▅▆▄▅▅▆▆▅▅▅▄▄▄▃▃▃▂▂▂▁▂▁▁▁▂▂▂▂
+[07:59:45] Chart  : █▇▇▆▆▆▅▅▄▄▄▅▆▄▅▅▆▆▅▅▅▄▄▄▃▃▃▁▁▁▁▁▁▁▁▁▁▁▁
 --------------------------------------------------
 ```
 
@@ -148,27 +148,4 @@ KONFIRMASI (T-60s, 1 menit terakhir) **tidak langsung membalik arah** PREDIKSI: 
 - Konversi ke ET memakai `ZoneInfo("America/New_York")` — **otomatis** menangani DST:
   - Agustus (musim panas): EDT = UTC−4.
   - Desember (musim dingin): EST = UTC−5.
-- Contoh verifikasi: window `1787702100` = **Aug 25, 07:55 PM − 08:00 PM ET**.
-
----
-
-## 8. Troubleshooting
-
-| Gejala                     | Solusi                                                                       |
-| -------------------------- | ---------------------------------------------------------------------------- |
-| `Failed: api.binance.com`  | Jaringan memblokir domain itu. Bot memakai mirror `data-api.binance.vision` yang kini **urutan pertama** — tidak ada lagi log error di operasi normal. |
-| `TRADE [SKIP] ... TransportError` | DNS lokal memblokir `polymarket.com` (sinkhole). Sudah diatasi via `extra_hosts` di `docker-compose.yml` — IP di-pin langsung ke Cloudflare. Update bila IP berubah: `https://1.1.1.1/dns-query?name=<host>&type=A`. |
-| `[AI] retry` di log        | Model reasoning timeout/kehabisan token — bot retry sekali lalu fallback.    |
-| `[AI] skipped` terus       | Cek `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` di `.env`. Atau matikan AI dengan mengosongkan `AI_API_KEY`. |
-| `ModuleNotFoundError: zoneinfo` | Pakai Python 3.9+ atau `pip install tzdata`.                                  |
-| Sinyal tidak pernah muncul  | Bot mencetak PREDIKSI di menit ke-2 dan KONFIRMASI di menit terakhir; entry auto-trade dinamis mulai menit ke-1 (tiap 15 detik) hanya jika harga cocok. Cek log di menit ke-2. |
-| `TRADE [SKIP] ... harga terlalu mahal — EV negatif` | Guard harga menolak entry mahal (best ask > `TRADE_HARD_MAX_ASK`). Detail: [README FAQ](README.md). |
-
----
-
-## 9. Tips
-
-1. **AI bukan pengganti delta window.** Saat delta sudah tegas (> 0.10%), aturan menang — jangan paksa AI membaliknya.
-2. **Gunakan API key yang sesuai.** Base URL gateway menentukan model; pastikan `AI_MODEL` valid di gateway Anda (mis. 9router `coding-fast`).
-3. **Amati beberapa window dulu.** Catat akurasi sinyal vs hasil aktual sebelum mengintegrasikan ke bot trading sungguhan.
-4. **Jaga log.** Redirect output ke file bila menjalankan di background: `python signal.py >> signal.log 2>&1`.
+- Contoh verifikasi: window `1787702100` = **Aug 25, 07:55 PM — 08:00 PM ET**.
